@@ -1,0 +1,94 @@
+DATA:
+  MAX_SAMPLE_INTERVAL: 200
+  MEAN:
+  - 0.485
+  - 0.456
+  - 0.406
+  SEARCH:
+    CENTER_JITTER: 3
+    FACTOR: 4.0
+    SCALE_JITTER: 0.25
+    SIZE: 256
+    NUMBER: 1
+  STD:
+  - 0.229
+  - 0.224
+  - 0.225
+  TEMPLATE:
+    CENTER_JITTER: 0
+    FACTOR: 2.0
+    SCALE_JITTER: 0
+    SIZE: 128
+#  TRAIN:
+#    DATASETS_NAME:
+#      - GOT10K_train_full
+#    DATASETS_RATIO:
+#      - 1
+#    SAMPLE_PER_EPOCH: 60000
+
+  # TRAIN:
+  #   DATASETS_NAME:
+  #   - LASOT
+  #   - GOT10K_vottrain
+  #   - COCO17
+  #   - ANTI_UAV600_TRAIN
+  #   DATASETS_RATIO:
+  #   - 1
+  #   - 1
+  #   - 1
+  #   - 1
+  #   SAMPLE_PER_EPOCH: 60000
+  TRAIN:
+    DATASETS_NAME:
+    - ANTI_UAV600_TRAIN
+    DATASETS_RATIO:
+    - 1
+    # 两天内能跑完：4096/32=128 iter/epoch（可按需再改 3072 等）
+    SAMPLE_PER_EPOCH: 4096
+  VAL:
+    DATASETS_NAME:
+    - ANTI_UAV600_VAL
+    DATASETS_RATIO:
+    - 1
+    SAMPLE_PER_EPOCH: 1024
+MODEL:
+  PRETRAIN_FILE: "D:/code/UAV/OSTrack-main/weights/OSTrack_vitb256_ep300/OSTrack_ep0300.pth.tar"
+  EXTRA_MERGER: False
+  RETURN_INTER: False
+  BACKBONE:
+    TYPE: vit_base_patch16_224_ce
+    STRIDE: 16
+    CE_LOC: [3, 6, 9]
+    CE_KEEP_RATIO: [0.7, 0.7, 0.7]
+    CE_TEMPLATE_RANGE: 'CTR_POINT'  # choose between ALL, CTR_POINT, CTR_REC, GT_BOX
+  HEAD:
+    TYPE: CENTER
+    NUM_CHANNELS: 256
+TRAIN:
+  BACKBONE_MULTIPLIER: 0.1
+  DROP_PATH_RATE: 0.1
+  CE_START_EPOCH: 3
+  CE_WARM_EPOCH: 10
+  BATCH_SIZE: 32
+  EPOCH: 20
+  GIOU_WEIGHT: 2.0
+  L1_WEIGHT: 5.0
+  GRAD_CLIP_NORM: 0.1
+  LR: 0.00015
+  LR_DROP_EPOCH: 14
+  NUM_WORKER: 0
+  OPTIMIZER: ADAMW
+  PRINT_INTERVAL: 25
+  SCHEDULER:
+    TYPE: step
+    DECAY_RATE: 0.1
+  # 只在第 10、20 轮做 val，省时间
+  VAL_EPOCH_INTERVAL: 10
+  WEIGHT_DECAY: 0.0001
+  AMP: True
+TEST:
+  EPOCH: 100
+  SEARCH_FACTOR: 3.6
+  SEARCH_SIZE: 256
+  TEMPLATE_FACTOR: 2.2
+  TEMPLATE_SIZE: 128
