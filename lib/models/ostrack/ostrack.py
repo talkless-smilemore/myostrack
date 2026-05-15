@@ -10,6 +10,7 @@ from torch import nn
 from torch.nn.modules.transformer import _get_clones
 
 from lib.models.layers.head import build_box_head
+from lib.models.layers.oplora import inject_oplora_into_backbone
 from lib.models.ostrack.vit import vit_base_patch16_224
 from lib.models.ostrack.vit_ce import vit_large_patch16_224_ce, vit_base_patch16_224_ce
 from lib.utils.box_ops import box_xyxy_to_cxcywh
@@ -17,7 +18,7 @@ from lib.utils.box_ops import box_xyxy_to_cxcywh
 
 class OSTrack(nn.Module):
     """ This is the base class for OSTrack """
-
+#初始化一个 OSTrack 模型，把 backbone 和 box head 存起来。
     def __init__(self, transformer, box_head, aux_loss=False, head_type="CORNER"):
         """ Initializes the model.
         Parameters:
@@ -36,7 +37,7 @@ class OSTrack(nn.Module):
 
         if self.aux_loss:
             self.box_head = _get_clones(self.box_head, 6)
-
+# 完整前向传播。输入模板图和搜索图，输出预测框、score map 等结果。
     def forward(self, template: torch.Tensor,
                 search: torch.Tensor,
                 ce_template_mask=None,
@@ -57,7 +58,7 @@ class OSTrack(nn.Module):
         out.update(aux_dict)
         out['backbone_feat'] = x
         return out
-
+# 从 backbone 输出里取出搜索区域 token，并送入预测头得到框。
     def forward_head(self, cat_feature, gt_score_map=None):
         """
         cat_feature: output embeddings of the backbone, it can be (HW1+HW2, B, C) or (HW2, B, C)
@@ -151,5 +152,17 @@ def build_ostrack(cfg, training=True):
             print("Skip incompatible pretrained keys:", incompatible_keys)
         missing_keys, unexpected_keys = model.load_state_dict(ckpt_state, strict=False)
         print('Load pretrained model from: ' + cfg.MODEL.PRETRAIN_FILE)
+
+    oplora_cfg = getattr(cfg.TRAIN, "OPLORA", None)
+    if oplora_cfg is not None and getattr(oplora_cfg, "ENABLE", False):
+        n_rep, _ = inject_oplora_into_backbone(
+            model.backbone,
+            enable=True,
+            rank=int(oplora_cfg.RANK),
+            top_k=int(oplora_cfg.TOP_K),
+            alpha=float(oplora_cfg.ALPHA),
+            target_linear_names=getattr(oplora_cfg, "TARGETS", None),
+        )
+        print(f"OPLoRA: replaced {n_rep} Linear layers in backbone (rank={oplora_cfg.RANK}, top_k={oplora_cfg.TOP_K}).")
 
     return model

@@ -2,7 +2,6 @@ from . import BaseActor
 from lib.utils.misc import NestedTensor
 from lib.utils.box_ops import box_cxcywh_to_xyxy, box_xywh_to_xyxy
 import torch
-from lib.utils.merge import merge_template_search
 from ...utils.heapmap_utils import generate_heatmap
 from ...utils.ce_utils import generate_mask_cond, adjust_keep_rate
 

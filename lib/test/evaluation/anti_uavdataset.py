@@ -33,9 +33,29 @@ def _list_images(folder):
     return [os.path.join(folder, f) for f in names]
 
 
+def _canonical_modality(label_stem):
+    stem = label_stem.upper()
+    if stem in ("IR", "INFRARED"):
+        return "IR"
+    if stem in ("RGB", "VISIBLE"):
+        return "RGB"
+    return stem
+
+
+def _label_stem_from_filename(filename):
+    lower = filename.lower()
+    if lower.endswith("_label.json"):
+        return filename[: -len("_label.json")]
+    if lower in ("infrared.json", "ir.json"):
+        return "IR"
+    if lower in ("visible.json", "rgb.json"):
+        return "RGB"
+    return None
+
+
 def _resolve_image_dir(scene_dir, label_stem):
     """label_stem 例如 IR / RGB（来自 IR_label.json）。"""
-    stem = label_stem.upper()
+    stem = _canonical_modality(label_stem)
     candidates = [
         os.path.join(scene_dir, label_stem),
         os.path.join(scene_dir, stem),
@@ -71,7 +91,7 @@ def _resolve_frames(scene_dir, label_stem):
 
 
 def _resolve_video(scene_dir, label_stem):
-    stem = label_stem.upper()
+    stem = _canonical_modality(label_stem)
     candidates = []
     if stem == "IR":
         candidates = ["IR.mp4", "ir.mp4", "infrared.mp4"]
@@ -181,9 +201,9 @@ class AntiUAVDataset(BaseDataset):
             names = os.listdir(root)
         except OSError:
             return False
-        if not any(f.endswith("_label.json") for f in names):
+        if not any(_label_stem_from_filename(f) is not None for f in names):
             return False
-        return bool(_list_images(root))
+        return bool(_list_images(root) or any(f.lower().endswith(".mp4") for f in names))
 
     def _entries_from_scene_dir(self, scene_dir, scene_name):
         out = []
@@ -193,10 +213,10 @@ class AntiUAVDataset(BaseDataset):
             return out
 
         for fn in fns:
-            if not fn.endswith("_label.json"):
+            label_stem = _label_stem_from_filename(fn)
+            if label_stem is None:
                 continue
-            label_stem = fn[: -len("_label.json")]
-            u = label_stem.upper()
+            u = _canonical_modality(label_stem)
             if self.modalities == "ir" and u != "IR":
                 continue
             if self.modalities == "rgb" and u != "RGB":
