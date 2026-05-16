@@ -32,7 +32,8 @@ class VisionTransformerCE(VisionTransformer):
                  num_heads=12, mlp_ratio=4., qkv_bias=True, representation_size=None, distilled=False,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., embed_layer=PatchEmbed, norm_layer=None,
                  act_layer=None, weight_init='',
-                 ce_loc=None, ce_keep_ratio=None):
+                 ce_loc=None, ce_keep_ratio=None,
+                 evt_enable=False, evt_gamma=0.875, evt_apply_cross=False):
         """
         Args:
             img_size (int, tuple): input image size
@@ -91,7 +92,8 @@ class VisionTransformerCE(VisionTransformer):
                 CEBlock(
                     dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
                     attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer,
-                    keep_ratio_search=ce_keep_ratio_i)
+                    keep_ratio_search=ce_keep_ratio_i,
+                    evt_enable=evt_enable, evt_gamma=evt_gamma, evt_apply_cross=evt_apply_cross)
             )
 
         self.blocks = nn.Sequential(*blocks)
@@ -139,6 +141,8 @@ class VisionTransformerCE(VisionTransformer):
 
         lens_z = self.pos_embed_z.shape[1]
         lens_x = self.pos_embed_x.shape[1]
+        grid_z = (int(round(math.sqrt(lens_z))), int(round(math.sqrt(lens_z))))
+        grid_x = (int(round(math.sqrt(lens_x))), int(round(math.sqrt(lens_x))))
 
         global_index_t = torch.linspace(0, lens_z - 1, lens_z).to(x.device)
         global_index_t = global_index_t.repeat(B, 1)
@@ -148,7 +152,8 @@ class VisionTransformerCE(VisionTransformer):
         removed_indexes_s = []
         for i, blk in enumerate(self.blocks):
             x, global_index_t, global_index_s, removed_index_s, attn = \
-                blk(x, global_index_t, global_index_s, mask_x, ce_template_mask, ce_keep_rate)
+                blk(x, global_index_t, global_index_s, mask_x, ce_template_mask, ce_keep_rate,
+                    evt_template_grid_size=grid_z, evt_search_grid_size=grid_x)
 
             if self.ce_loc is not None and i in self.ce_loc:
                 removed_indexes_s.append(removed_index_s)

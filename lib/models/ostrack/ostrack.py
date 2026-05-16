@@ -107,17 +107,25 @@ def build_ostrack(cfg, training=True):
         patch_start_index = 1
 
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_base_patch16_224_ce':
+        evt_cfg = getattr(cfg.MODEL.BACKBONE, "EVT", None)
         backbone = vit_base_patch16_224_ce(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE,
                                            ce_loc=cfg.MODEL.BACKBONE.CE_LOC,
                                            ce_keep_ratio=cfg.MODEL.BACKBONE.CE_KEEP_RATIO,
+                                           evt_enable=evt_cfg is not None and getattr(evt_cfg, "ENABLE", False),
+                                           evt_gamma=getattr(evt_cfg, "GAMMA", 0.875) if evt_cfg is not None else 0.875,
+                                           evt_apply_cross=getattr(evt_cfg, "APPLY_CROSS", False) if evt_cfg is not None else False,
                                            )
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
 
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_large_patch16_224_ce':
+        evt_cfg = getattr(cfg.MODEL.BACKBONE, "EVT", None)
         backbone = vit_large_patch16_224_ce(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE,
                                             ce_loc=cfg.MODEL.BACKBONE.CE_LOC,
                                             ce_keep_ratio=cfg.MODEL.BACKBONE.CE_KEEP_RATIO,
+                                            evt_enable=evt_cfg is not None and getattr(evt_cfg, "ENABLE", False),
+                                            evt_gamma=getattr(evt_cfg, "GAMMA", 0.875) if evt_cfg is not None else 0.875,
+                                            evt_apply_cross=getattr(evt_cfg, "APPLY_CROSS", False) if evt_cfg is not None else False,
                                             )
 
         hidden_dim = backbone.embed_dim
