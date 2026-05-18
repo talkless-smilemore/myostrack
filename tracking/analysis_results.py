@@ -7,7 +7,7 @@ from lib.test.evaluation import get_dataset, trackerlist
 
 trackers = []
 # 与 test.py 的 --dataset_name 一致；评测结果目录在 output/test/tracking_results/ostrack/<parameter_name>/
-dataset_name = 'anti_uav_ir'
+dataset_name = 'anti_uav410'
 
 
 """stark"""
@@ -34,7 +34,7 @@ dataset_name = 'anti_uav_ir'
 #                             run_ids=None, display_name='OSTrack-finetune'))
 trackers.extend(trackerlist(
     name='ostrack',
-    parameter_name='vitb_384_mae_ce_32x4_ep300_uav_oplora',
+    parameter_name='vitb_384_mae_ce_32x4_ep300_uav410_oplora_EVT',
     dataset_name=dataset_name,
     run_ids=None,
     display_name='OSTrack-uav-oplora'
@@ -50,5 +50,6 @@ dataset = get_dataset(*[x.strip() for x in dataset_name.split(',')])
 # plot_results(trackers, dataset, dataset_name, merge_results=True,
 #              plot_types=('success', 'norm_prec', 'prec'), force_evaluation=False)
 print_results(trackers, dataset, dataset_name, merge_results=True,
-              plot_types=('success', 'norm_prec', 'prec'))
+              plot_types=('success', 'prec', 'norm_prec'),
+              skip_missing_seq=True)
 # print_results(trackers, dataset, 'UNO', merge_results=True, plot_types=('success', 'prec'))
