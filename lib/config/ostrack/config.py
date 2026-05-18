@@ -54,6 +54,12 @@ cfg.TRAIN.OPLORA.RANK = 8
 cfg.TRAIN.OPLORA.TOP_K = 16
 cfg.TRAIN.OPLORA.ALPHA = 8.0
 cfg.TRAIN.OPLORA.TARGETS = ["qkv", "proj", "fc1", "fc2"]
+# NeuroAda: sparse trainable per-neuron bypass on selected ViT Linear layers
+cfg.TRAIN.NEUROADA = edict()
+cfg.TRAIN.NEUROADA.ENABLE = False
+cfg.TRAIN.NEUROADA.TOP_K = 1
+cfg.TRAIN.NEUROADA.SCALE = 1.0
+cfg.TRAIN.NEUROADA.TARGETS = ["qkv", "proj", "fc1", "fc2"]
 cfg.TRAIN.PRINT_INTERVAL = 50
 cfg.TRAIN.VAL_EPOCH_INTERVAL = 20
 cfg.TRAIN.GRAD_CLIP_NORM = 0.1

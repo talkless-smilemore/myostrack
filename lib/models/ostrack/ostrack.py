@@ -10,6 +10,7 @@ from torch import nn
 from torch.nn.modules.transformer import _get_clones
 
 from lib.models.layers.head import build_box_head
+from lib.models.layers.neuroada import inject_neuroada_into_backbone
 from lib.models.layers.oplora import inject_oplora_into_backbone
 from lib.models.ostrack.vit import vit_base_patch16_224
 from lib.models.ostrack.vit_ce import vit_large_patch16_224_ce, vit_base_patch16_224_ce
@@ -164,5 +165,19 @@ def build_ostrack(cfg, training=True):
             target_linear_names=getattr(oplora_cfg, "TARGETS", None),
         )
         print(f"OPLoRA: replaced {n_rep} Linear layers in backbone (rank={oplora_cfg.RANK}, top_k={oplora_cfg.TOP_K}).")
+
+    neuroada_cfg = getattr(cfg.TRAIN, "NEUROADA", None)
+    if neuroada_cfg is not None and getattr(neuroada_cfg, "ENABLE", False):
+        n_rep, n_skip = inject_neuroada_into_backbone(
+            model.backbone,
+            enable=True,
+            top_k=int(neuroada_cfg.TOP_K),
+            scale=float(getattr(neuroada_cfg, "SCALE", 1.0)),
+            target_linear_names=getattr(neuroada_cfg, "TARGETS", None),
+        )
+        print(
+            f"NeuroAda: replaced {n_rep} Linear layers in backbone "
+            f"(top_k={neuroada_cfg.TOP_K}, scale={getattr(neuroada_cfg, 'SCALE', 1.0)}, skipped={n_skip})."
+        )
 
     return model
