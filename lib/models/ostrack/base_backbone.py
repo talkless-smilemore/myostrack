@@ -7,6 +7,7 @@ from timm.models.vision_transformer import resize_pos_embed
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 
 from lib.models.layers.patch_embed import PatchEmbed
+from lib.models.layers.rpe import generate_center_distance_prior
 from lib.models.ostrack.utils import combine_tokens, recover_tokens
 
 
@@ -96,6 +97,22 @@ class BaseBackbone(nn.Module):
             self.search_segment_pos_embed = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
             self.search_segment_pos_embed = trunc_normal_(self.search_segment_pos_embed, std=.02)
 
+        # Euclidean distance centre prior (Fan et al. 2026)
+        cp_cfg = getattr(cfg.MODEL, "CENTER_PRIOR", None)
+        if cp_cfg is not None and getattr(cp_cfg, "ENABLE", False):
+            feat_sz_s = search_size[0] // new_patch_size
+            num_bins = getattr(cp_cfg, "NUM_BINS", 16)
+            self.register_buffer(
+                "center_dist_idx",
+                generate_center_distance_prior(feat_sz_s, num_bins),
+                persistent=True,
+            )
+            self.center_dist_embed = nn.Embedding(num_bins, self.embed_dim)
+            trunc_normal_(self.center_dist_embed.weight, std=0.02)
+        else:
+            self.center_dist_embed = None
+            self.center_dist_idx = None
+
         # self.cls_token = None
         # self.pos_embed = None
 
@@ -119,6 +136,12 @@ class BaseBackbone(nn.Module):
 
         z += self.pos_embed_z
         x += self.pos_embed_x
+
+        # inject centre-distance embedding into search tokens
+        if self.center_dist_embed is not None:
+            centre_emb = self.center_dist_embed(self.center_dist_idx.to(x.device))
+            centre_emb = centre_emb.unsqueeze(0).expand(B, -1, -1)
+            x = x + centre_emb
 
         if self.add_sep_seg:
             x += self.search_segment_pos_embed

@@ -127,6 +127,12 @@ class VisionTransformerCE(VisionTransformer):
         z += self.pos_embed_z
         x += self.pos_embed_x
 
+        # inject centre-distance embedding into search tokens
+        if self.center_dist_embed is not None:
+            centre_emb = self.center_dist_embed(self.center_dist_idx.to(x.device))
+            centre_emb = centre_emb.unsqueeze(0).expand(B, -1, -1)
+            x = x + centre_emb
+
         if self.add_sep_seg:
             x += self.search_segment_pos_embed
             z += self.template_segment_pos_embed

@@ -88,6 +88,31 @@ def generate_2d_concatenated_cross_attention_relative_positional_encoding_index(
     return indices.view(x_len, (z_len + x_len))
 
 
+def generate_center_distance_prior(feat_sz_s: int, num_bins: int = 16):
+    """
+    Generate discretised Euclidean distance bins for each search token
+    relative to the feature-map centre.
+
+    Args:
+        feat_sz_s: feature map spatial size (e.g. 16 for 256/16).
+        num_bins:  number of discrete distance bins.
+
+    Returns:
+        torch.LongTensor of shape (feat_sz_s ** 2,) with bin index [0, num_bins-1]
+        for each search token in row-major order.
+    """
+    h = torch.arange(feat_sz_s, dtype=torch.float32)
+    w = torch.arange(feat_sz_s, dtype=torch.float32)
+    centre = (feat_sz_s - 1) / 2.0
+    dist = torch.sqrt((h[:, None] - centre) ** 2 + (w[None, :] - centre) ** 2)
+    dist = dist.flatten()  # (N_s,)
+
+    max_dist = dist.max().clamp_min(1e-6)
+    bins = (dist / max_dist * (num_bins - 1)).long()
+    bins = bins.clamp(0, num_bins - 1)
+    return bins
+
+
 class RelativePosition2DEncoder(nn.Module):
     def __init__(self, num_heads, embed_size):
         super(RelativePosition2DEncoder, self).__init__()
