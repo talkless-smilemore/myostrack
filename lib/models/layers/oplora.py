@@ -131,6 +131,95 @@ class OPLoRALinear(nn.Module):
         return out + scale * ur
 
 
+class NeuronSelectiveOPLoRALinear(OPLoRALinear):
+    """
+    NS-OPLoRA: OPLoRA + NeuroAda neuron-level selectivity.
+
+    Inherits the orthogonal-projection low-rank structure from OPLoRA
+    and adds a per-neuron binary mask that gates the LoRA output.  Only
+    the top-p% neurons (ranked by mean absolute input weight) receive
+    non-zero updates — the rest are frozen at zero, saving optimizer
+    memory and focusing adaptation capacity on the most active neurons.
+
+    The mask is computed once from the frozen weight and is NOT trainable.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool,
+        rank: int,
+        top_k: int,
+        alpha: float,
+        weight: torch.Tensor,
+        bias_tensor: Optional[torch.Tensor],
+        neuron_keep_ratio: float = 1.0,
+    ):
+        super().__init__(
+            in_features, out_features, bias, rank, top_k, alpha, weight, bias_tensor,
+        )
+        self.neuron_keep_ratio = float(neuron_keep_ratio)
+
+        if not self._oplora_active:
+            self.register_buffer("neuron_mask", torch.ones(out_features, device=weight.device))
+            return
+
+        kk = min(max(int(out_features * neuron_keep_ratio), 1), out_features)
+        if kk >= out_features:
+            self.register_buffer("neuron_mask", torch.ones(out_features, device=weight.device))
+            return
+
+        importance = self.weight.data.abs().mean(dim=1)  # [d_out]
+        _, top_idx = torch.topk(importance, kk)
+        mask = torch.zeros(out_features, device=weight.device, dtype=weight.dtype)
+        mask.scatter_(0, top_idx, 1.0)
+        self.register_buffer("neuron_mask", mask)
+
+    @classmethod
+    def from_linear(
+        cls,
+        linear: nn.Linear,
+        rank: int,
+        top_k: int,
+        alpha: float,
+        neuron_keep_ratio: float = 1.0,
+    ) -> "NeuronSelectiveOPLoRALinear":
+        has_bias = linear.bias is not None
+        return cls(
+            linear.in_features,
+            linear.out_features,
+            has_bias,
+            rank,
+            top_k,
+            alpha,
+            linear.weight.data,
+            linear.bias.data if has_bias else None,
+            neuron_keep_ratio=neuron_keep_ratio,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = F.linear(x, self.weight, self.bias)
+        if not getattr(self, "_oplora_active", False) or self.rank <= 0:
+            return out
+        scale = self.alpha / self.rank
+        if self.Vk.shape[1] > 0:
+            xv = torch.matmul(x, self.Vk)
+            xr = x - torch.matmul(xv, self.Vk.t())
+        else:
+            xr = x
+        z = F.linear(xr, self.lora_A)
+        u = F.linear(z, self.lora_B)
+        if self.Uk.shape[1] > 0:
+            xu = torch.matmul(u, self.Uk)
+            ur = u - torch.matmul(xu, self.Uk.t())
+        else:
+            ur = u
+        # Neuron-selective mask
+        ur = ur * self.neuron_mask
+        return out + scale * ur
+
+
 def inject_oplora_into_backbone(
     backbone: nn.Module,
     enable: bool,

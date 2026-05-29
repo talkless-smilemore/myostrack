@@ -1,3 +1,15 @@
+# NS-OPLoRA: Neuron-Selective Orthogonal Projection LoRA
+# Anti-UAV fine-tuning with layer-wise differentiated PEFT.
+#
+# Key design:
+#   - Shallow blocks 0-2  : strong adapt (p=0.8, rank=8, all Linear targets)
+#   - CE blocks 3, 6, 9   : attn-focused (p=0.6, rank=4, qkv+proj only)
+#   - Mid blocks 4, 5      : MLP-only light adapt (p=0.5, rank=4, fc1+fc2 only)
+#   - Deep blocks 7,8,10,11: FROZEN (no PEFT)
+#
+# This targets anti-UAV scenarios: small targets -> shallow detail layers matter most;
+# fast motion -> CE pruning quality matters most.
+
 DATA:
   MAX_SAMPLE_INTERVAL: 200
   MEAN:
@@ -18,6 +30,7 @@ DATA:
     FACTOR: 2.0
     SCALE_JITTER: 0
     SIZE: 128
+
   TRAIN:
     DATASETS_NAME:
     - ANTI_UAV_TRAIN
@@ -38,6 +51,7 @@ DATA:
     - 1
     - 1
     SAMPLE_PER_EPOCH: 5000
+
 MODEL:
   PRETRAIN_FILE: "E:/code/UAV/OSTrack-main/weights/OSTrack_vitb256_ep300/OSTrack_ep0300.pth.tar"
   EXTRA_MERGER: False
@@ -51,20 +65,34 @@ MODEL:
   HEAD:
     TYPE: CENTER
     NUM_CHANNELS: 256
-  # Euclidean distance centre prior (Fan et al. 2026)
+  # Euclidean distance centre prior (Fan et al. 2026) — static spatial prior
   CENTER_PRIOR:
-    ENABLE: true
+    ENABLE: false
     NUM_BINS: 16
+
 TRAIN:
   BACKBONE_MULTIPLIER: 0.1
   DROP_PATH_RATE: 0.1
-  BATCH_SIZE: 24
+  BATCH_SIZE: 16
+
+  # Plain OPLoRA disabled in favour of NS-OPLoRA
   OPLORA:
-    ENABLE: true
+    ENABLE: false
     RANK: 8
     TOP_K: 16
     ALPHA: 8.0
     TARGETS: ["qkv", "proj", "fc1", "fc2"]
+
+  # NS-OPLoRA: layer-selective neuron-selective OPLoRA
+  NEURO_OPLORA:
+    ENABLE: true
+    # LAYER_CONFIGS: null  -> uses ANTI_UAV_DEFAULT_LAYER_CONFIG
+    #   blocks 0-2  : rank=8, neuron_p=0.8, targets=[attn.qkv, attn.proj, mlp.fc1, mlp.fc2]
+    #   blocks 3,6,9: rank=4, neuron_p=0.6, targets=[attn.qkv, attn.proj]
+    #   blocks 4,5  : rank=4, neuron_p=0.5, targets=[mlp.fc1, mlp.fc2]
+    #   blocks 7,8,10,11: frozen (no injection)
+    LAYER_CONFIGS: null
+
   EPOCH: 40
   GIOU_WEIGHT: 2.0
   L1_WEIGHT: 5.0
@@ -79,14 +107,15 @@ TRAIN:
     DECAY_RATE: 0.1
   VAL_EPOCH_INTERVAL: 10
   WEIGHT_DECAY: 0.0001
-  AMP: True
+  AMP: False
+
 TEST:
   EPOCH: 40
   SEARCH_FACTOR: 3.6
   SEARCH_SIZE: 256
   TEMPLATE_FACTOR: 2.2
   TEMPLATE_SIZE: 128
-  # Adaptive Kalman filter + adaptive search factor (inference only)
+  # Adaptive Kalman filter + adaptive search factor (inference only) — dynamic temporal prior
   KALMAN_FILTER:
     ENABLE: false
     DT: 1.0

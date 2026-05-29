@@ -2,7 +2,6 @@ import os
 import sys
 import argparse
 import importlib
-import cv2 as cv
 import torch
 import torch.backends.cudnn
 import torch.distributed as dist
@@ -34,8 +33,12 @@ def run_training(script_name, config_name, cudnn_benchmark=True, local_rank=-1, 
     """
     if save_dir is None:
         print("save_dir dir is not given. Use the default dir instead.")
-    # This is needed to avoid strange crashes related to opencv
-    cv.setNumThreads(0)
+    # Import cv2 here (delay to avoid DLL conflicts between OpenCV and PIL when importing heavy modules)
+    try:
+        import cv2 as cv
+        cv.setNumThreads(0)
+    except Exception:
+        cv = None
 
     print('script_name: {}.py  config_name: {}.yaml'.format(script_name, config_name))
 

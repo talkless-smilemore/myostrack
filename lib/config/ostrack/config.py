@@ -59,6 +59,10 @@ cfg.TRAIN.OPLORA.RANK = 8
 cfg.TRAIN.OPLORA.TOP_K = 16
 cfg.TRAIN.OPLORA.ALPHA = 8.0
 cfg.TRAIN.OPLORA.TARGETS = ["qkv", "proj", "fc1", "fc2"]
+# NS-OPLoRA (Neuron-Selective OPLoRA + layer-wise differentiation for anti-UAV)
+cfg.TRAIN.NEURO_OPLORA = edict()
+cfg.TRAIN.NEURO_OPLORA.ENABLE = False
+cfg.TRAIN.NEURO_OPLORA.LAYER_CONFIGS = None  # None = use ANTI_UAV_DEFAULT_LAYER_CONFIG
 cfg.TRAIN.PRINT_INTERVAL = 50
 cfg.TRAIN.VAL_EPOCH_INTERVAL = 20
 cfg.TRAIN.GRAD_CLIP_NORM = 0.1

@@ -34,10 +34,10 @@ dataset_name = 'anti_uav_ir'
 #                             run_ids=None, display_name='OSTrack-finetune'))
 trackers.extend(trackerlist(
     name='ostrack',
-    parameter_name='vitb_384_mae_ce_32x4_ep300_uav_oplora',
+    parameter_name='vitb_256_mae_ce_32x4_ep300_uav_neuro_oplora',
     dataset_name=dataset_name,
     run_ids=None,
-    display_name='OSTrack-uav-oplora'
+    display_name='OSTrack-uav-neuro-oplora'
 ))
 # trackers.extend(trackerlist(name='ostrack', parameter_name='vitb_256_mae_ce_32x4_ep300_sf36_tf25', dataset_name=dataset_name,
 #                             run_ids=None, display_name='OSTrack256'))
@@ -49,6 +49,9 @@ dataset = get_dataset(*[x.strip() for x in dataset_name.split(',')])
 # 终端打印 AUC / OP50 / OP75 / Precision 等；图保存到 local.py 里 result_plot_path/<第三个参数>/
 # plot_results(trackers, dataset, dataset_name, merge_results=True,
 #              plot_types=('success', 'norm_prec', 'prec'), force_evaluation=False)
+plot_results(trackers, dataset, dataset_name, merge_results=True,
+             plot_types=('success', 'norm_prec', 'prec'), force_evaluation=False)
+
 print_results(trackers, dataset, dataset_name, merge_results=True,
               plot_types=('success', 'norm_prec', 'prec'))
 # print_results(trackers, dataset, 'UNO', merge_results=True, plot_types=('success', 'prec'))

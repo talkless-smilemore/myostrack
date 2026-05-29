@@ -1,6 +1,20 @@
 import torch
-from torchvision.ops.boxes import box_area
 import numpy as np
+
+# Try to import box_area from torchvision; if unavailable, provide a lightweight fallback
+try:
+    from torchvision.ops.boxes import box_area
+except Exception:
+    box_area = None
+
+
+def _box_area_fallback(boxes: torch.Tensor):
+    """Fallback implementation of box_area for boxes in (N,4) [x1,y1,x2,y2]."""
+    wh = (boxes[:, 2:] - boxes[:, :2]).clamp(min=0)
+    return wh[:, 0] * wh[:, 1]
+
+if box_area is None:
+    box_area = _box_area_fallback
 
 
 def box_cxcywh_to_xyxy(x):

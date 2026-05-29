@@ -1,4 +1,11 @@
-import tikzplotlib
+try:
+    import tikzplotlib
+    _HAS_TIKZ = True
+except Exception as _e:
+    tikzplotlib = None
+    _HAS_TIKZ = False
+    print('Warning: tikzplotlib not available or incompatible:', _e)
+
 import matplotlib
 import matplotlib.pyplot as plt
 import os
@@ -162,7 +169,13 @@ def plot_draw_save(y, x, scores, trackers, plot_draw_styles, result_plot_path, p
     ax.grid(True, linestyle='-.')
     fig.tight_layout()
 
-    tikzplotlib.save('{}/{}_plot.tex'.format(result_plot_path, plot_type))
+    if _HAS_TIKZ:
+        try:
+            tikzplotlib.save('{}/{}_plot.tex'.format(result_plot_path, plot_type))
+        except Exception as _e:
+            print('Warning: failed to save tikz plot:', _e)
+    else:
+        print('Info: tikzplotlib not available, skipping .tex export for', plot_type)
     fig.savefig('{}/{}_plot.pdf'.format(result_plot_path, plot_type), dpi=300, format='pdf', transparent=True)
     plt.draw()
 

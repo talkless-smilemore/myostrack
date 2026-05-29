@@ -11,6 +11,7 @@ from torch.nn.modules.transformer import _get_clones
 
 from lib.models.layers.head import build_box_head
 from lib.models.layers.oplora import inject_oplora_into_backbone
+from lib.models.layers.neuro_oplora import inject_neuro_oplora_into_backbone, ANTI_UAV_DEFAULT_LAYER_CONFIG
 from lib.models.ostrack.vit import vit_base_patch16_224
 from lib.models.ostrack.vit_ce import vit_large_patch16_224_ce, vit_base_patch16_224_ce
 from lib.utils.box_ops import box_xyxy_to_cxcywh
@@ -153,8 +154,21 @@ def build_ostrack(cfg, training=True):
         missing_keys, unexpected_keys = model.load_state_dict(ckpt_state, strict=False)
         print('Load pretrained model from: ' + cfg.MODEL.PRETRAIN_FILE)
 
+    # NS-OPLoRA (neuron-selective + layer-selective): takes priority over plain OPLoRA
+    neuro_cfg = getattr(cfg.TRAIN, "NEURO_OPLORA", None)
     oplora_cfg = getattr(cfg.TRAIN, "OPLORA", None)
-    if oplora_cfg is not None and getattr(oplora_cfg, "ENABLE", False):
+    if neuro_cfg is not None and getattr(neuro_cfg, "ENABLE", False):
+        layer_configs = getattr(neuro_cfg, "LAYER_CONFIGS", None) or None
+        if layer_configs is None:
+            layer_configs = ANTI_UAV_DEFAULT_LAYER_CONFIG
+        n_rep, n_frozen = inject_neuro_oplora_into_backbone(
+            model.backbone,
+            enable=True,
+            layer_configs=layer_configs,
+        )
+        print(f"NS-OPLoRA: replaced {n_rep} Linear layers, {n_frozen} blocks frozen.")
+
+    elif oplora_cfg is not None and getattr(oplora_cfg, "ENABLE", False):
         n_rep, _ = inject_oplora_into_backbone(
             model.backbone,
             enable=True,
