@@ -4,6 +4,7 @@ from lib.utils.box_ops import box_cxcywh_to_xyxy, box_xywh_to_xyxy
 import torch
 from ...utils.heapmap_utils import generate_heatmap
 from ...utils.ce_utils import generate_mask_cond, adjust_keep_rate
+from lib.models.layers.sglora import SpectralGatedLinear, collect_sglora_regularisation
 
 
 class OSTrackActor(BaseActor):
@@ -65,6 +66,11 @@ class OSTrackActor(BaseActor):
         if len(template_list) == 1:
             template_list = template_list[0]
 
+        # SGLoRA progress tracking for dynamic entropy schedule
+        if self.cfg is not None and getattr(getattr(self.cfg.TRAIN, "SGLORA", None), "ENABLE", False):
+            progress = float(data['epoch']) / max(float(self.cfg.TRAIN.EPOCH), 1)
+            SpectralGatedLinear.set_progress(progress)
+
         out_dict = self.net(template=template_list,
                             search=search_img,
                             ce_template_mask=box_mask_z,
@@ -101,6 +107,9 @@ class OSTrackActor(BaseActor):
             location_loss = torch.tensor(0.0, device=l1_loss.device)
         # weighted sum
         loss = self.loss_weight['giou'] * giou_loss + self.loss_weight['l1'] * l1_loss + self.loss_weight['focal'] * location_loss
+        # SGLoRA regularisation (entropy + group-lasso on spectral gates)
+        reg_loss = collect_sglora_regularisation(self.net)
+        loss = loss + reg_loss
         if return_status:
             # status for log
             mean_iou = iou.detach().mean()
@@ -108,6 +117,7 @@ class OSTrackActor(BaseActor):
                       "Loss/giou": giou_loss.item(),
                       "Loss/l1": l1_loss.item(),
                       "Loss/location": location_loss.item(),
+                      "Loss/sglora_reg": reg_loss.item(),
                       "IoU": mean_iou.item()}
             return loss, status
         else:

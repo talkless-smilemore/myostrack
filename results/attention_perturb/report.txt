@@ -1,0 +1,11 @@
+============================================================
+  PERTURBATION ANALYSIS SUMMARY
+============================================================
+  Texture sensitivity (patch shuffle)  shallow→deep: 0.407 → 0.543
+  Texture sensitivity (gaussian blur)   shallow→deep: 0.023 → 0.227
+  Structure sensitivity (phase scramble) shallow→deep: 0.574 → 0.480
+
+  ★ Texture → Semantic transition starts at Block 0
+    Blocks 0--1: texture-dominated (higher patch-shuffle sensitivity)
+    Blocks 0-11: semantic-dominated (higher phase-scramble sensitivity)
+============================================================

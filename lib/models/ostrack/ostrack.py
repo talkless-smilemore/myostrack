@@ -12,6 +12,7 @@ from torch.nn.modules.transformer import _get_clones
 from lib.models.layers.head import build_box_head
 from lib.models.layers.oplora import inject_oplora_into_backbone
 from lib.models.layers.neuro_oplora import inject_neuro_oplora_into_backbone, ANTI_UAV_DEFAULT_LAYER_CONFIG
+from lib.models.layers.sglora import inject_sglora_into_backbone, SGLORA_DEFAULT_LAYER_CONFIG
 from lib.models.ostrack.vit import vit_base_patch16_224
 from lib.models.ostrack.vit_ce import vit_large_patch16_224_ce, vit_base_patch16_224_ce
 from lib.utils.box_ops import box_xyxy_to_cxcywh
@@ -178,5 +179,25 @@ def build_ostrack(cfg, training=True):
             target_linear_names=getattr(oplora_cfg, "TARGETS", None),
         )
         print(f"OPLoRA: replaced {n_rep} Linear layers in backbone (rank={oplora_cfg.RANK}, top_k={oplora_cfg.TOP_K}).")
+
+    # SGLoRA (Spectral-Gated LoRA): deeply fused PEFT — replaces OPLoRA+NeuroAda stack
+    sglora_cfg = getattr(cfg.TRAIN, "SGLORA", None)
+    if sglora_cfg is not None and getattr(sglora_cfg, "ENABLE", False):
+        layer_configs = getattr(sglora_cfg, "LAYER_CONFIGS", None) or None
+        if layer_configs is None:
+            layer_configs = SGLORA_DEFAULT_LAYER_CONFIG
+        n_rep, n_frozen = inject_sglora_into_backbone(
+            model.backbone,
+            enable=True,
+            layer_configs=layer_configs,
+            entropy_lam_max=float(getattr(sglora_cfg, "ENTROPY_LAM_MAX", 1e-4)),
+            warmup_ratio=float(getattr(sglora_cfg, "WARMUP_RATIO", 0.33)),
+            anneal_ratio=float(getattr(sglora_cfg, "ANNEAL_RATIO", 0.33)),
+            group_lasso_lam_max=float(getattr(sglora_cfg, "GROUP_LASSO_LAM_MAX", 1e-5)),
+        )
+        print(f"SGLoRA: replaced {n_rep} Linear layers, {n_frozen} blocks frozen "
+              f"(entropy_lam_max={getattr(sglora_cfg, 'ENTROPY_LAM_MAX', 1e-4)}, "
+              f"warmup={getattr(sglora_cfg, 'WARMUP_RATIO', 0.33)}, "
+              f"anneal={getattr(sglora_cfg, 'ANNEAL_RATIO', 0.33)}).")
 
     return model
