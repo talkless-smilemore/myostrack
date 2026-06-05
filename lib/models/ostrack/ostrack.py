@@ -140,7 +140,7 @@ def build_ostrack(cfg, training=True):
     )
 
     if 'OSTrack' in cfg.MODEL.PRETRAIN_FILE and training:
-        checkpoint = torch.load(cfg.MODEL.PRETRAIN_FILE, map_location="cpu")
+        checkpoint = torch.load(cfg.MODEL.PRETRAIN_FILE, map_location="cpu", weights_only=False)
         ckpt_state = checkpoint["net"]
         model_state = model.state_dict()
         # Allow loading checkpoints trained with different template/search sizes

@@ -52,7 +52,11 @@ def main():
     except:
         seq_name = args.sequence
 
-    args.dataset_name = ['trackingnet', 'got10k_test', 'lasot']
+    # Use user-supplied dataset(s) if given; otherwise default to standard benchmarks
+    if args.dataset_name is None or args.dataset_name == 'otb':
+        args.dataset_name = ['trackingnet', 'got10k_test', 'lasot']
+    else:
+        args.dataset_name = args.dataset_name.split(',') if isinstance(args.dataset_name, str) else [args.dataset_name]
 
     run_tracker(args.tracker_name, args.tracker_param, args.runid, args.dataset_name, seq_name, args.debug,
                 args.threads, num_gpus=args.num_gpus)

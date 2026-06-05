@@ -369,7 +369,7 @@ def _create_vision_transformer(variant, pretrained=False, default_cfg=None, **kw
         if 'npz' in pretrained:
             model.load_pretrained(pretrained, prefix='')
         else:
-            checkpoint = torch.load(pretrained, map_location="cpu")
+            checkpoint = torch.load(pretrained, map_location="cpu", weights_only=False)
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint["model"], strict=False)
             print('Load pretrained model from: ' + pretrained)
 

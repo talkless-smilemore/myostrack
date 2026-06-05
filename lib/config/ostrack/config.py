@@ -74,6 +74,7 @@ cfg.TRAIN.SGLORA.GROUP_LASSO_LAM_MAX = 1e-5
 cfg.TRAIN.PRINT_INTERVAL = 50
 cfg.TRAIN.VAL_EPOCH_INTERVAL = 20
 cfg.TRAIN.GRAD_CLIP_NORM = 0.1
+cfg.TRAIN.SAVE_EPOCHS = []  # extra epochs to save checkpoints (e.g. [20])
 cfg.TRAIN.AMP = False
 
 cfg.TRAIN.CE_START_EPOCH = 20  # candidate elimination start epoch

@@ -34,10 +34,10 @@ dataset_name = 'anti_uav_ir'
 #                             run_ids=None, display_name='OSTrack-finetune'))
 trackers.extend(trackerlist(
     name='ostrack',
-    parameter_name='vitb_256_mae_ce_32x4_ep300_uav_neuro_oplora',
+    parameter_name='vitb_256_mae_ce_32x4_ep300_uav_sglora',
     dataset_name=dataset_name,
     run_ids=None,
-    display_name='OSTrack-uav-neuro-oplora'
+    display_name='OSTrack-uav-sglora'
 ))
 # trackers.extend(trackerlist(name='ostrack', parameter_name='vitb_256_mae_ce_32x4_ep300_sf36_tf25', dataset_name=dataset_name,
 #                             run_ids=None, display_name='OSTrack256'))

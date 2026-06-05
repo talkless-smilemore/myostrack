@@ -24,6 +24,7 @@ def update_settings(settings, cfg):
     settings.print_stats = None
     settings.batchsize = cfg.TRAIN.BATCH_SIZE
     settings.scheduler_type = cfg.TRAIN.SCHEDULER.TYPE
+    settings.save_epochs = getattr(cfg.TRAIN, "SAVE_EPOCHS", [79, 159, 239])
 
 
 def names2datasets(name_list: list, settings, image_loader):

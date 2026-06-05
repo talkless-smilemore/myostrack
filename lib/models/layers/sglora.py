@@ -4,13 +4,16 @@ Spectral-Gated Low-Rank Adaptation (SGLoRA).
 A deeply fused parameter-efficient fine-tuning method that replaces the
 independent OPLoRA + NeuroAda stack with a single unified formulation:
 
-    ΔW = (alpha / r) · diag(g) · B · A · (I - V_k V_k^T)
+    ΔW = (alpha / r) · diag(g) · P_L · B · A · P_R
+
+    where  P_R = I - V_k V_k^T,   P_L = I - U_k U_k^T
 
 Design principles (vs. NS-OPLoRA):
-  1. INPUT projection P_R = I - V_k V_k^T is RETAINED  — forces the adapter
-     to operate in the subspace orthogonal to W0's principal components.
-  2. OUTPUT projection P_L = I - U_k U_k^T is REMOVED  — replaced by a
-     per-neuron learnable soft gate g ∈ [0,1]^{d_out}.
+  1. BOTH projections P_R and P_L are RETAINED — the full OPLoRA orthogonal
+     skeleton protects pre-trained principal components in input AND output space.
+  2. The static binary neuron mask M ∈ {0,1}^{d_out} (NeuroAda) is REPLACED by
+     a learnable soft spectral gate g = sigmoid(s) ∈ [0,1]^{d_out}, placed AFTER
+     P_L so it can selectively scale each neuron's projected update.
   3. The gate g is initialised from the SAME SVD spectrum (spectral importance)
      and trained with an entropy-regularisation schedule that gradually pushes
      gates toward {0,1} after a warm-up period.
@@ -61,18 +64,18 @@ SGLORA_DEFAULT_LAYER_CONFIG: List[Dict[str, Any]] = [
         "alpha": 8.0,
         "targets": ["attn.qkv", "attn.proj", "mlp.fc1", "mlp.fc2"],
     },
-    # Group B: CE decision layers — attention-focused, model's decision backbone
+    # Group B: CE decision layers — rank=8, attention-focused
     #   B6: comprehensive decision (comprehensive=1.559, GaussBlur peak 0.538)
     #   B9: texture screening (comprehensive=1.479, PatchShuffle peak 0.713)
     #   B3: spatial screening (comprehensive=1.170, CE entry)
     {
         "blocks": [6, 9, 3],
-        "rank": 6,
+        "rank": 8,
         "top_k": 16,
         "alpha": 8.0,
         "targets": ["attn.qkv", "attn.proj"],
     },
-    # Group C: structural support — MLP-only light adaptation
+    # Group C: structural support — MLP-only medium adaptation
     #   B5: post-CE reconstruction (comprehensive=1.380, two-metric dual-high)
     #   B2: global spatial construction (comprehensive=1.061, new-view adaptation)
     {
@@ -82,10 +85,18 @@ SGLORA_DEFAULT_LAYER_CONFIG: List[Dict[str, Any]] = [
         "alpha": 8.0,
         "targets": ["mlp.fc1", "mlp.fc2"],
     },
-    # Frozen (no entry = no injection):
+    # Group D: occlusion/edge-case support — minimal adaptation
+    #   B8: pure local texture (comprehensive=0.843), critical for occluded targets
+    {
+        "blocks": [8],
+        "rank": 2,
+        "top_k": 16,
+        "alpha": 8.0,
+        "targets": ["attn.qkv", "attn.proj"],
+    },
+    # Frozen:
     #   B0:  spatial embedding,  no learning capacity,  comprehensive=0.729
     #   B4:  spatial refinement,  low-sensitivity gap +0.096, comprehensive=1.089
-    #   B8:  pure local texture,  lowest non-frozen sensitivity 0.843
     #   B10: fine-tuning,         low priority per doc
     #   B11: stable output,       perturbation-insensitive, comprehensive=1.025
 ]
@@ -100,14 +111,16 @@ class SpectralGatedLinear(nn.Module):
     Single unified PEFT module.
 
     Forward (row-vector convention):
-        out  = x @ W0^T + bias                         … frozen base
-        x_r  = x - (x @ V_k) @ V_k^T                   … input projection (P_R)
-        z    = x_r @ A^T                                 … low-rank bottleneck (r)
-        u    = z @ B^T                                   … expand to d_out
-        u_g  = sigmoid(s) * u                           … spectral gate (learnable)
-        out += (alpha / r) * u_g                        … residual
+        out  = x @ W0^T + bias                              … frozen base
+        x_r  = x - (x @ V_k) @ V_k^T                        … input projection (P_R)
+        z    = x_r @ A^T                                      … low-rank bottleneck (r)
+        u    = z @ B^T                                        … expand to d_out
+        u_r  = u - (u @ U_k) @ U_k^T                         … output projection (P_L)
+        u_g  = sigmoid(s) * u_r                              … spectral gate (after P_L)
+        out += (alpha / r) * u_g                             … residual
 
     Where:
+        U_k  — top-k left singular vectors of W0   (frozen buffer)
         V_k  — top-k right singular vectors of W0  (frozen buffer)
         A    — (r × d_in)  trainable
         B    — (d_out × r) trainable
@@ -143,8 +156,6 @@ class SpectralGatedLinear(nn.Module):
         anneal_ratio: float = 0.33,
         # Group-lasso
         group_lasso_lam_max: float = 1e-5,
-        # Gate initialisation
-        gate_init_range: Tuple[float, float] = (0.1, 0.9),
     ):
         super().__init__()
         self.in_features = in_features
@@ -174,6 +185,9 @@ class SpectralGatedLinear(nn.Module):
         if rank <= 0:
             self._active = False
             self.register_buffer(
+                "Uk", torch.empty(out_features, 0, device=weight.device, dtype=weight.dtype)
+            )
+            self.register_buffer(
                 "Vk", torch.empty(in_features, 0, device=weight.device, dtype=weight.dtype)
             )
             self.register_parameter(
@@ -189,35 +203,26 @@ class SpectralGatedLinear(nn.Module):
 
         self._active = True
 
-        # ---- SVD: V_k + spectral importance for gate init -------------------
+        # ---- SVD: extract U_k, V_k for orthogonal projections --------------
         W = self.weight.data
         kk = min(top_k, min(out_features, in_features))
         if kk > 0:
             U, S, Vh = torch.linalg.svd(W, full_matrices=False)
             kk = min(kk, U.shape[1], Vh.shape[0])
             Uk = U[:, :kk]           # [d_out, k]
-            Sk = S[:kk]               # [k]
             Vk = Vh[:kk, :].T         # [d_in, k]
-
-            # Spectral importance: weighted alignment with top singular directions
-            # imp_i = Σ_j σ_j · |U_{i,j}|  →  normalised to [0, 1]
-            imp = (Sk.unsqueeze(0) * Uk.abs()).sum(dim=1)  # [d_out]
-            imp_max = imp.max()
-            if imp_max > 0:
-                imp = imp / imp_max
-
-            # Gate target: important neurons → low gate; flexible neurons → high gate
-            g_target = 1.0 - imp  # [d_out], range ~ [0, 1]
-            # Clamp into safe range to avoid extreme initial saturation
-            lo, hi = gate_init_range
-            g_target = g_target.clamp(lo, hi)
-
-            # Inverse sigmoid: logit = log(g / (1-g))
-            gate_logit_init = torch.log(g_target / (1.0 - g_target))
         else:
+            Uk = torch.empty(out_features, 0, device=W.device, dtype=W.dtype)
             Vk = torch.empty(in_features, 0, device=W.device, dtype=W.dtype)
-            gate_logit_init = torch.zeros(out_features, device=W.device, dtype=W.dtype)
 
+        # Neutral gate init: all gates start at 0.5 (sigmoid(0) = 0.5).
+        # P_L already removes principal-component directions, so the gate
+        # does NOT need to suppress "important" neurons — that would be
+        # double-penalising. Instead, the gate starts neutral and learns
+        # neuron-level sparsity purely from the task loss + entropy schedule.
+        gate_logit_init = torch.zeros(out_features, device=W.device, dtype=W.dtype)
+
+        self.register_buffer("Uk", Uk.contiguous())
         self.register_buffer("Vk", Vk.contiguous())
 
         # ---- LoRA matrices ------------------------------------------------
@@ -244,7 +249,6 @@ class SpectralGatedLinear(nn.Module):
         warmup_ratio: float = 0.33,
         anneal_ratio: float = 0.33,
         group_lasso_lam_max: float = 1e-5,
-        gate_init_range: Tuple[float, float] = (0.1, 0.9),
     ) -> "SpectralGatedLinear":
         has_bias = linear.bias is not None
         return cls(
@@ -260,7 +264,6 @@ class SpectralGatedLinear(nn.Module):
             warmup_ratio=warmup_ratio,
             anneal_ratio=anneal_ratio,
             group_lasso_lam_max=group_lasso_lam_max,
-            gate_init_range=gate_init_range,
         )
 
     # ------------------------------------------------------------------
@@ -285,9 +288,16 @@ class SpectralGatedLinear(nn.Module):
         z = F.linear(xr, self.lora_A)   # [B, N, r]
         u = F.linear(z, self.lora_B)    # [B, N, d_out]
 
-        # --- spectral gate ---------------------------------------------------
+        # --- output orthogonal projection: P_L @ u ---------------------------
+        if self.Uk.shape[1] > 0:
+            uu = torch.matmul(u, self.Uk)           # [B, N, k]
+            ur = u - torch.matmul(uu, self.Uk.t())  # [B, N, d_out]
+        else:
+            ur = u
+
+        # --- spectral gate (after P_L) ---------------------------------------
         g = torch.sigmoid(self.gate_logit)  # [d_out]
-        ug = u * g                           # [B, N, d_out]
+        ug = ur * g                          # [B, N, d_out]
 
         return out + scale * ug
 
@@ -342,14 +352,27 @@ class SpectralGatedLinear(nn.Module):
         """
         Return (W_merged, bias) that folds the adapter into a plain Linear.
 
-        W_merged = W0 + (alpha/r) · diag(sigmoid(s)) · B · A
+        W_merged = W0 + (alpha/r) · diag(g) · P_L · B · A · P_R
+
+        where P_L = I - U_k @ U_k^T,  P_R = I - V_k @ V_k^T
         """
         if not self._active:
             return self.weight.data, self.bias.data if self.bias is not None else None
 
         scale = self.alpha / self.rank
         g = torch.sigmoid(self.gate_logit)  # [d_out]
-        delta = scale * (g.unsqueeze(1) * (self.lora_B @ self.lora_A))  # [d_out, d_in]
+
+        BA = self.lora_B @ self.lora_A                      # [d_out, d_in]
+
+        # Apply P_R on the right: BA @ P_R = BA - (BA @ V_k) @ V_k^T
+        if self.Vk.shape[1] > 0:
+            BA = BA - (BA @ self.Vk) @ self.Vk.t()
+
+        # Apply P_L on the left:  P_L @ BA = BA - U_k @ (U_k^T @ BA)
+        if self.Uk.shape[1] > 0:
+            BA = BA - self.Uk @ (self.Uk.t() @ BA)
+
+        delta = scale * g.unsqueeze(1) * BA                 # [d_out, d_in]
         W_merged = self.weight.data + delta
         bias_merged = self.bias.data if self.bias is not None else None
         return W_merged, bias_merged
@@ -383,7 +406,6 @@ def inject_sglora_into_backbone(
     warmup_ratio: float = 0.33,
     anneal_ratio: float = 0.33,
     group_lasso_lam_max: float = 1e-5,
-    gate_init_range: Tuple[float, float] = (0.1, 0.9),
 ) -> Tuple[int, int]:
     """
     Inject SpectralGatedLinear into the ViT backbone according to layer_configs.
@@ -396,7 +418,6 @@ def inject_sglora_into_backbone(
         warmup_ratio: fraction of training where λ=0.
         anneal_ratio: fraction over which λ ramps to max.
         group_lasso_lam_max: peak group-lasso regularisation strength.
-        gate_init_range: (lo, hi) for initial gate clamping.
 
     Returns:
         (num_replaced, num_frozen_blocks)
@@ -433,7 +454,6 @@ def inject_sglora_into_backbone(
                             warmup_ratio=warmup_ratio,
                             anneal_ratio=anneal_ratio,
                             group_lasso_lam_max=group_lasso_lam_max,
-                            gate_init_range=gate_init_range,
                         ),
                     )
                     replaced += 1

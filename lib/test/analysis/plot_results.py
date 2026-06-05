@@ -107,7 +107,7 @@ def get_tracker_display_name(tracker):
 
 
 def plot_draw_save(y, x, scores, trackers, plot_draw_styles, result_plot_path, plot_opts):
-    plt.rcParams['text.usetex']=True
+    plt.rcParams['text.usetex']=False
     plt.rcParams["font.family"] = "Times New Roman"
     # Plot settings
     font_size = plot_opts.get('font_size', 20)
