@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "OSTrack_Detailed_Explanation.md",
+                "file": "wsp_structure_diagrams.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "OSTrack_Detailed_Explanation"
+              "title": "wsp_structure_diagrams"
             }
           }
         ]
@@ -78,8 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300,
-    "collapsed": true
+    "width": 300
   },
   "right": {
     "id": "b5e3676d4b1e0aaa",
@@ -186,14 +185,38 @@
   },
   "active": "c83e5412e3d80fc2",
   "lastOpenFiles": [
-    "adaptive_kalman_tracker.md",
-    "sglora_algorithm.md",
-    "mermaid-diagram.png",
-    "sglora_how_it_works.md",
-    "sglora_how_it_works.md.tmp.24376.0e3f3cf4dfc7",
+    "freeze_ablation_guide.md.tmp.44076.86b8debca680",
+    "freeze_ablation_guide.md.tmp.44076.acd447d2101f",
+    "freeze_ablation_guide.md.tmp.44076.81a8c7c6f885",
+    "freeze_ablation_guide.md.tmp.44076.b8c5e5819681",
+    "freeze_ablation_guide.md.tmp.44076.9e9b33faa94f",
+    "freeze_ablation_guide.md.tmp.44076.18e39b106711",
+    "freeze_ablation_guide.md.tmp.44076.ba67627fedab",
+    "freeze_ablation_guide.md.tmp.44076.81015ebd4fed",
+    "freeze_ablation_guide.md.tmp.44076.cfef49ac2399",
+    "freeze_ablation_guide.md.tmp.44076.87950522d0c7",
+    "freeze_ablation_guide.md.tmp.44076.4ea01f517bdc",
+    "wsp_mermaid.md",
+    "ostrack_wsp_完整改动说明.md",
+    "wsp_structure_diagrams.md",
+    "uav_wsp_file_structure.md",
+    "wsp_gating_mechanism.md",
+    "uav_wsp_v2_changelog.md",
     "OSTrack_Layer_Analysis.md",
-    "sglora_algorithm.md.tmp.24376.690288e1f285",
+    "sglora_algorithm.md",
     "OSTrack_Detailed_Explanation.md",
-    "anti_uav_prior_analysis.md"
+    "ns_oplora_principle.md",
+    "ns_oplora_block_diagram.md",
+    "neuro_oplora_design.md",
+    "mermaid-diagram.png",
+    "implementation_design.md",
+    "code_changes.md",
+    "code_change_plan.md",
+    "anti_uav_prior_analysis.md",
+    "包装方案.md",
+    "adaptive_kalman_tracker.md",
+    "OPLoRA_集成说明.md",
+    "sglora_how_it_works.md",
+    "uav_wsp_adaptation.md"
   ]
 }

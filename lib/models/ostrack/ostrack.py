@@ -10,9 +10,8 @@ from torch import nn
 from torch.nn.modules.transformer import _get_clones
 
 from lib.models.layers.head import build_box_head
-from lib.models.layers.oplora import inject_oplora_into_backbone
-from lib.models.layers.neuro_oplora import inject_neuro_oplora_into_backbone, ANTI_UAV_DEFAULT_LAYER_CONFIG
-from lib.models.layers.sglora import inject_sglora_into_backbone, SGLORA_DEFAULT_LAYER_CONFIG
+from lib.models.layers.lora import inject_lora_into_backbone
+from lib.models.layers.uav_wsp import inject_wsp_into_backbone, WSP_DEFAULT_PRIOR_CONFIG
 from lib.models.ostrack.vit import vit_base_patch16_224
 from lib.models.ostrack.vit_ce import vit_large_patch16_224_ce, vit_base_patch16_224_ce
 from lib.utils.box_ops import box_xyxy_to_cxcywh
@@ -20,7 +19,7 @@ from lib.utils.box_ops import box_xyxy_to_cxcywh
 
 class OSTrack(nn.Module):
     """ This is the base class for OSTrack """
-#初始化一个 OSTrack 模型，把 backbone 和 box head 存起来。
+#鍒濆鍖栦竴涓?OSTrack 妯″瀷锛屾妸 backbone 鍜?box head 瀛樿捣鏉ャ€?
     def __init__(self, transformer, box_head, aux_loss=False, head_type="CORNER"):
         """ Initializes the model.
         Parameters:
@@ -39,7 +38,7 @@ class OSTrack(nn.Module):
 
         if self.aux_loss:
             self.box_head = _get_clones(self.box_head, 6)
-# 完整前向传播。输入模板图和搜索图，输出预测框、score map 等结果。
+# 瀹屾暣鍓嶅悜浼犳挱銆傝緭鍏ユā鏉垮浘鍜屾悳绱㈠浘锛岃緭鍑洪娴嬫銆乻core map 绛夌粨鏋溿€?
     def forward(self, template: torch.Tensor,
                 search: torch.Tensor,
                 ce_template_mask=None,
@@ -60,7 +59,7 @@ class OSTrack(nn.Module):
         out.update(aux_dict)
         out['backbone_feat'] = x
         return out
-# 从 backbone 输出里取出搜索区域 token，并送入预测头得到框。
+# 浠?backbone 杈撳嚭閲屽彇鍑烘悳绱㈠尯鍩?token锛屽苟閫佸叆棰勬祴澶村緱鍒版銆?
     def forward_head(self, cat_feature, gt_score_map=None):
         """
         cat_feature: output embeddings of the backbone, it can be (HW1+HW2, B, C) or (HW2, B, C)
@@ -155,49 +154,43 @@ def build_ostrack(cfg, training=True):
         missing_keys, unexpected_keys = model.load_state_dict(ckpt_state, strict=False)
         print('Load pretrained model from: ' + cfg.MODEL.PRETRAIN_FILE)
 
-    # NS-OPLoRA (neuron-selective + layer-selective): takes priority over plain OPLoRA
-    neuro_cfg = getattr(cfg.TRAIN, "NEURO_OPLORA", None)
-    oplora_cfg = getattr(cfg.TRAIN, "OPLORA", None)
-    if neuro_cfg is not None and getattr(neuro_cfg, "ENABLE", False):
-        layer_configs = getattr(neuro_cfg, "LAYER_CONFIGS", None) or None
+    # Vanilla LoRA baseline: freeze original backbone weights and train only A/B adapters.
+    lora_cfg = getattr(cfg.TRAIN, "LORA", None)
+    if lora_cfg is not None and getattr(lora_cfg, "ENABLE", False):
+        n_rep, n_lora_params = inject_lora_into_backbone(
+            model.backbone,
+            enable=True,
+            rank=int(getattr(lora_cfg, "RANK", 8)),
+            alpha=float(getattr(lora_cfg, "ALPHA", 8.0)),
+            dropout=float(getattr(lora_cfg, "DROPOUT", 0.0)),
+            target_linear_names=getattr(lora_cfg, "TARGETS", ["qkv", "proj", "fc1", "fc2"]),
+            freeze_backbone=bool(getattr(lora_cfg, "FREEZE_BACKBONE", True)),
+        )
+        print(f"Vanilla LoRA: replaced {n_rep} Linear layers, trainable LoRA params={n_lora_params}.")
+    # WSP (Weighted Spectral Projection): anti-UAV small-target adapter
+    # Unified PEFT with spectrally weighted orthogonal projection,
+    # target-saliency gates, and focus regularisation.
+    wsp_cfg = getattr(cfg.TRAIN, "UAV_WSP", None)
+    if wsp_cfg is not None and getattr(wsp_cfg, "ENABLE", False):
+        layer_configs = getattr(wsp_cfg, "LAYER_CONFIGS", None) or None
         if layer_configs is None:
-            layer_configs = ANTI_UAV_DEFAULT_LAYER_CONFIG
-        n_rep, n_frozen = inject_neuro_oplora_into_backbone(
+            layer_configs = WSP_DEFAULT_PRIOR_CONFIG
+        n_rep, n_frozen = inject_wsp_into_backbone(
             model.backbone,
             enable=True,
             layer_configs=layer_configs,
+            entropy_lam_max=float(getattr(wsp_cfg, "ENTROPY_LAM_MAX", 1e-4)),
+            warmup_ratio=float(getattr(wsp_cfg, "WARMUP_RATIO", 0.33)),
+            anneal_ratio=float(getattr(wsp_cfg, "ANNEAL_RATIO", 0.33)),
+            group_lasso_lam_max=float(getattr(wsp_cfg, "GROUP_LASSO_LAM_MAX", 1e-5)),
+            focus_lam_max=float(getattr(wsp_cfg, "FOCUS_LAM_MAX", 1e-5)),
         )
-        print(f"NS-OPLoRA: replaced {n_rep} Linear layers, {n_frozen} blocks frozen.")
-
-    elif oplora_cfg is not None and getattr(oplora_cfg, "ENABLE", False):
-        n_rep, _ = inject_oplora_into_backbone(
-            model.backbone,
-            enable=True,
-            rank=int(oplora_cfg.RANK),
-            top_k=int(oplora_cfg.TOP_K),
-            alpha=float(oplora_cfg.ALPHA),
-            target_linear_names=getattr(oplora_cfg, "TARGETS", None),
-        )
-        print(f"OPLoRA: replaced {n_rep} Linear layers in backbone (rank={oplora_cfg.RANK}, top_k={oplora_cfg.TOP_K}).")
-
-    # SGLoRA (Spectral-Gated LoRA): deeply fused PEFT — replaces OPLoRA+NeuroAda stack
-    sglora_cfg = getattr(cfg.TRAIN, "SGLORA", None)
-    if sglora_cfg is not None and getattr(sglora_cfg, "ENABLE", False):
-        layer_configs = getattr(sglora_cfg, "LAYER_CONFIGS", None) or None
-        if layer_configs is None:
-            layer_configs = SGLORA_DEFAULT_LAYER_CONFIG
-        n_rep, n_frozen = inject_sglora_into_backbone(
-            model.backbone,
-            enable=True,
-            layer_configs=layer_configs,
-            entropy_lam_max=float(getattr(sglora_cfg, "ENTROPY_LAM_MAX", 1e-4)),
-            warmup_ratio=float(getattr(sglora_cfg, "WARMUP_RATIO", 0.33)),
-            anneal_ratio=float(getattr(sglora_cfg, "ANNEAL_RATIO", 0.33)),
-            group_lasso_lam_max=float(getattr(sglora_cfg, "GROUP_LASSO_LAM_MAX", 1e-5)),
-        )
-        print(f"SGLoRA: replaced {n_rep} Linear layers, {n_frozen} blocks frozen "
-              f"(entropy_lam_max={getattr(sglora_cfg, 'ENTROPY_LAM_MAX', 1e-4)}, "
-              f"warmup={getattr(sglora_cfg, 'WARMUP_RATIO', 0.33)}, "
-              f"anneal={getattr(sglora_cfg, 'ANNEAL_RATIO', 0.33)}).")
+        beta_info = getattr(wsp_cfg, "SPECTRAL_BETA", "per-group")
+        print(f"UAV-WSP: replaced {n_rep} Linear layers, {n_frozen} blocks frozen "
+              f"(spectral_beta={beta_info}, "
+              f"entropy_lam_max={getattr(wsp_cfg, 'ENTROPY_LAM_MAX', 1e-4)}, "
+              f"focus_lam_max={getattr(wsp_cfg, 'FOCUS_LAM_MAX', 1e-5)}).")
 
     return model
+
+

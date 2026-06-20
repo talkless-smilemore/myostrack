@@ -67,6 +67,18 @@ class BaseTrainer:
             fail_safe - Bool indicating whether the training to automatically restart in case of any crashes.
         """
 
+        # ── best-model tracking (YOLO-style) ──────────────────────────
+        self._best_metric_val = float("inf")  # lower is better
+        self._best_metric_name = getattr(self.settings, "save_best_metric", "Loss/total")
+        self._save_best_enabled = getattr(self.settings, "save_best", True)
+        # Find the validation loader name once
+        self._val_loader_name = None
+        for ld in self.loaders:
+            if not ld.training:
+                self._val_loader_name = ld.name
+                break
+        # ───────────────────────────────────────────────────────────────
+
         epoch = -1
         num_tries = 1
         for i in range(num_tries):
@@ -89,6 +101,7 @@ class BaseTrainer:
                             self.lr_scheduler.step()
                         else:
                             self.lr_scheduler.step(epoch - 1)
+
                     # only save the last 10 checkpoints
                     save_every_epoch = getattr(self.settings, "save_every_epoch", False)
                     save_epochs = getattr(self.settings, "save_epochs", [79, 159, 239])
@@ -113,8 +126,45 @@ class BaseTrainer:
     def train_epoch(self):
         raise NotImplementedError
 
-    def save_checkpoint(self):
-        """Saves a checkpoint of the network and other variables."""
+    # ── YOLO-style best-model tracking ────────────────────────────────
+
+    def _try_save_best(self):
+        """
+        After each epoch, check whether the validation metric improved.
+        If so, overwrite ``{net_type}_best.pth.tar`` — exactly like YOLO's best.pt.
+        """
+        if not self._save_best_enabled or self._checkpoint_dir is None:
+            return
+        if self.settings.local_rank not in [-1, 0]:
+            return
+        if self._val_loader_name is None:
+            return
+
+        val_stats = self.stats.get(self._val_loader_name)
+        if val_stats is None:
+            return  # validation didn't run this epoch
+
+        metric_meter = val_stats.get(self._best_metric_name)
+        if metric_meter is None:
+            return
+        if not hasattr(metric_meter, 'avg'):
+            return
+
+        current = metric_meter.avg
+        if current < self._best_metric_val:
+            self._best_metric_val = current
+            self.save_checkpoint(tag="best")
+            print(f"🏆 New best model saved!  {self._best_metric_name} = {current:.5f}")
+
+    # ───────────────────────────────────────────────────────────────────
+
+    def save_checkpoint(self, tag=None):
+        """Saves a checkpoint of the network and other variables.
+
+        Args:
+            tag: If given (e.g. "best"), saves as ``{net_type}_{tag}.pth.tar``
+                 instead of ``{net_type}_ep{epoch:04d}.pth.tar``.
+        """
 
         net = self.actor.net.module if multigpu.is_multi_gpu(self.actor.net) else self.actor.net
 
@@ -129,8 +179,12 @@ class BaseTrainer:
             'constructor': getattr(net, 'constructor', None),
             'optimizer': self.optimizer.state_dict(),
             'stats': self.stats,
-            'settings': self.settings
+            'settings': self.settings,
         }
+        # Carry best-metric value when saving best checkpoint
+        if tag == "best" and hasattr(self, '_best_metric_val'):
+            state['best_metric'] = self._best_metric_val
+            state['best_metric_name'] = getattr(self, '_best_metric_name', 'Loss/total')
 
         directory = '{}/{}'.format(self._checkpoint_dir, self.settings.project_path)
         print(directory)
@@ -138,14 +192,25 @@ class BaseTrainer:
             print("directory doesn't exist. creating...")
             os.makedirs(directory)
 
-        # First save as a tmp file
-        tmp_file_path = '{}/{}_ep{:04d}.tmp'.format(directory, net_type, self.epoch)
+        # Choose filename: tag-based overwrites, epoch-based accumulates
+        if tag is not None:
+            file_path = '{}/{}_{}.pth.tar'.format(directory, net_type, tag)
+        else:
+            file_path = '{}/{}_ep{:04d}.pth.tar'.format(directory, net_type, self.epoch)
+
+        # Atomically save via tmp file. Use os.replace to overwrite existing file on Windows.
+        tmp_file_path = file_path + '.tmp'
         torch.save(state, tmp_file_path)
-
-        file_path = '{}/{}_ep{:04d}.pth.tar'.format(directory, net_type, self.epoch)
-
-        # Now rename to actual checkpoint. os.rename seems to be atomic if files are on same filesystem. Not 100% sure
-        os.rename(tmp_file_path, file_path)
+        try:
+            os.replace(tmp_file_path, file_path)
+        except Exception:
+            # Fallback: remove existing file and rename (best-effort)
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
+            os.rename(tmp_file_path, file_path)
 
     def load_checkpoint(self, checkpoint = None, fields = None, ignore_fields = None, load_constructor = False):
         """Loads a network checkpoint file.
