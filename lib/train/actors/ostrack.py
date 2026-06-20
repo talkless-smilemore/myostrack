@@ -2,9 +2,10 @@ from . import BaseActor
 from lib.utils.misc import NestedTensor
 from lib.utils.box_ops import box_cxcywh_to_xyxy, box_xywh_to_xyxy
 import torch
+import torch.nn.functional as F
 from ...utils.heapmap_utils import generate_heatmap
 from ...utils.ce_utils import generate_mask_cond, adjust_keep_rate
-from lib.models.layers.sglora import SpectralGatedLinear, collect_sglora_regularisation
+from lib.models.layers.uav_wsp import WeightedSpectralProjection, collect_wsp_regularisation
 
 
 class OSTrackActor(BaseActor):
@@ -44,11 +45,9 @@ class OSTrackActor(BaseActor):
         for i in range(self.settings.num_template):
             template_img_i = data['template_images'][i].view(-1,
                                                              *data['template_images'].shape[2:])  # (batch, 3, 128, 128)
-            # template_att_i = data['template_att'][i].view(-1, *data['template_att'].shape[2:])  # (batch, 128, 128)
             template_list.append(template_img_i)
 
         search_img = data['search_images'][0].view(-1, *data['search_images'].shape[2:])  # (batch, 3, 320, 320)
-        # search_att = data['search_att'][0].view(-1, *data['search_att'].shape[2:])  # (batch, 320, 320)
 
         box_mask_z = None
         ce_keep_rate = None
@@ -66,16 +65,28 @@ class OSTrackActor(BaseActor):
         if len(template_list) == 1:
             template_list = template_list[0]
 
-        # SGLoRA progress tracking for dynamic entropy schedule
-        if self.cfg is not None and getattr(getattr(self.cfg.TRAIN, "SGLORA", None), "ENABLE", False):
+        # WSP progress tracking for dynamic regularisation schedule
+        if self.cfg is not None and getattr(getattr(self.cfg.TRAIN, "UAV_WSP", None), "ENABLE", False):
             progress = float(data['epoch']) / max(float(self.cfg.TRAIN.EPOCH), 1)
-            SpectralGatedLinear.set_progress(progress)
+            WeightedSpectralProjection.set_progress(progress)
 
         out_dict = self.net(template=template_list,
                             search=search_img,
                             ce_template_mask=box_mask_z,
                             ce_keep_rate=ce_keep_rate,
                             return_last_attn=False)
+
+        # ── 🥈 temporal smoothness: forward next frame with same template ─
+        if 'search_next_images' in data:
+            search_next_img = data['search_next_images'][0].view(
+                -1, *data['search_next_images'].shape[2:])
+            out_next = self.net(template=template_list,
+                                search=search_next_img,
+                                ce_template_mask=box_mask_z,
+                                ce_keep_rate=ce_keep_rate,
+                                return_last_attn=False)
+            out_dict['pred_boxes_next'] = out_next['pred_boxes']
+        # ───────────────────────────────────────────────────────────────────
 
         return out_dict
 
@@ -107,8 +118,20 @@ class OSTrackActor(BaseActor):
             location_loss = torch.tensor(0.0, device=l1_loss.device)
         # weighted sum
         loss = self.loss_weight['giou'] * giou_loss + self.loss_weight['l1'] * l1_loss + self.loss_weight['focal'] * location_loss
-        # SGLoRA regularisation (entropy + group-lasso on spectral gates)
-        reg_loss = collect_sglora_regularisation(self.net)
+
+        # ── 🥈 temporal smoothness loss ──────────────────────────────────
+        temporal_loss = torch.tensor(0.0, device=loss.device)
+        temporal_weight = getattr(getattr(self.cfg.TRAIN, "TEMPORAL_SMOOTHNESS", None), "LOSS_WEIGHT", 0.0)
+        if temporal_weight > 0 and 'pred_boxes_next' in pred_dict:
+            pred_next = pred_dict['pred_boxes_next']  # [B, N, 4] in cxcywh
+            pred_curr = pred_dict['pred_boxes']
+            if pred_next.shape == pred_curr.shape:
+                temporal_loss = F.smooth_l1_loss(pred_curr, pred_next)
+                loss = loss + temporal_weight * temporal_loss
+        # ───────────────────────────────────────────────────────────────────
+
+        # WSP regularisation (entropy + group-lasso + focus regularisation)
+        reg_loss = collect_wsp_regularisation(self.net)
         loss = loss + reg_loss
         if return_status:
             # status for log
@@ -117,7 +140,8 @@ class OSTrackActor(BaseActor):
                       "Loss/giou": giou_loss.item(),
                       "Loss/l1": l1_loss.item(),
                       "Loss/location": location_loss.item(),
-                      "Loss/sglora_reg": reg_loss.item(),
+                      "Loss/wsp_reg": reg_loss.item(),
+                      "Loss/temporal": temporal_loss.item(),
                       "IoU": mean_iou.item()}
             return loss, status
         else:

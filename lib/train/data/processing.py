@@ -98,6 +98,9 @@ class STARKProcessing(BaseProcessing):
             data['search_images'], data['search_anno'], data['search_masks'] = self.transform['joint'](
                 image=data['search_images'], bbox=data['search_anno'], mask=data['search_masks'], new_roll=False)
 
+        # ── save search jittered box for temporal next-frame processing ──
+        _search_jittered_anno = None
+
         for s in ['template', 'search']:
             assert self.mode == 'sequence' or len(data[s + '_images']) == 1, \
                 "In pair mode, num train/test frames must be 1"
@@ -105,13 +108,16 @@ class STARKProcessing(BaseProcessing):
             # Add a uniform noise to the center pos
             jittered_anno = [self._get_jittered_box(a, s) for a in data[s + '_anno']]
 
+            # Remember search jittered box for temporal next-frame
+            if s == 'search':
+                _search_jittered_anno = jittered_anno
+
             # 2021.1.9 Check whether data is valid. Avoid too small bounding boxes
             w, h = torch.stack(jittered_anno, dim=0)[:, 2], torch.stack(jittered_anno, dim=0)[:, 3]
 
             crop_sz = torch.ceil(torch.sqrt(w * h) * self.search_area_factor[s])
             if (crop_sz < 1).any():
                 data['valid'] = False
-                # print("Too small box is found. Replace it with new data.")
                 return data
 
             # Crop image region centered at jittered_anno box and get the attention mask
@@ -123,22 +129,45 @@ class STARKProcessing(BaseProcessing):
                 image=crops, bbox=boxes, att=att_mask, mask=mask_crops, joint=False)
 
             # 2021.1.9 Check whether elements in data[s + '_att'] is all 1
-            # Note that type of data[s + '_att'] is tuple, type of ele is torch.tensor
             for ele in data[s + '_att']:
                 if (ele == 1).all():
                     data['valid'] = False
-                    # print("Values of original attention mask are all one. Replace it with new data.")
                     return data
-            # 2021.1.10 more strict conditions: require the donwsampled masks not to be all 1
+            # 2021.1.10 more strict conditions: require the downsampled masks not to be all 1
             for ele in data[s + '_att']:
                 feat_size = self.output_sz[s] // 16  # 16 is the backbone stride
-                # (1,1,128,128) (1,1,256,256) --> (1,1,8,8) (1,1,16,16)
                 mask_down = F.interpolate(ele[None, None].float(), size=feat_size).to(torch.bool)[0]
                 if (mask_down == 1).all():
                     data['valid'] = False
-                    # print("Values of down-sampled attention mask are all one. "
-                    #       "Replace it with new data.")
                     return data
+
+        # ── 🥈 temporal smoothness: process next frame with SAME crop window
+        if 'search_next_images' in data and _search_jittered_anno is not None:
+            try:
+                s = 'search_next'
+                # Use the SAME jittered box as the search frame → identical crop window
+                # The only difference is the pixel content at t vs t+1
+                cn, bn, amn, mcn = prutils.jittered_center_crop(
+                    data[s + '_images'], _search_jittered_anno,
+                    data[s + '_anno'],        # next frame's own GT for supervision
+                    self.search_area_factor['search'],
+                    self.output_sz['search'],
+                    masks=None)
+                data[s + '_images'], data[s + '_anno'], data[s + '_att'], data[s + '_masks'] = \
+                    self.transform['search'](
+                        image=cn, bbox=bn, att=amn, mask=mcn, joint=False)
+                # Apply output flattening to match search_images shape
+                if self.mode == 'sequence':
+                    data[s + '_images'] = stack_tensors(data[s + '_images'])
+                    data[s + '_anno'] = stack_tensors(data[s + '_anno'])
+                else:
+                    data[s + '_images'] = data[s + '_images'][0] if isinstance(data[s + '_images'], list) else data[s + '_images']
+                    data[s + '_anno'] = data[s + '_anno'][0] if isinstance(data[s + '_anno'], list) else data[s + '_anno']
+            except Exception:
+                # Unavailable next frame or crop failed → drop temporal pair
+                data.pop('search_next_images', None)
+                data.pop('search_next_anno', None)
+        # ──────────────────────────────────────────────────────────────────
 
         data['valid'] = True
         # if we use copy-and-paste augmentation

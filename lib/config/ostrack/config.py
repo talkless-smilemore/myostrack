@@ -52,30 +52,57 @@ cfg.TRAIN.BACKBONE_MULTIPLIER = 0.1
 cfg.TRAIN.GIOU_WEIGHT = 2.0
 cfg.TRAIN.L1_WEIGHT = 5.0
 cfg.TRAIN.FREEZE_LAYERS = [0, ]
-# OPLoRA (Orthogonal Projection LoRA): optional PEFT on ViT backbone Linears
+# Vanilla LoRA baseline. This is the original low-rank adapter without
+# orthogonal projection, gates, neuron selection, WSP, or extra regularisers.
+cfg.TRAIN.LORA = edict()
+cfg.TRAIN.LORA.ENABLE = False
+cfg.TRAIN.LORA.RANK = 8
+cfg.TRAIN.LORA.ALPHA = 8.0
+cfg.TRAIN.LORA.DROPOUT = 0.0
+cfg.TRAIN.LORA.TARGETS = ["qkv", "proj", "fc1", "fc2"]
+cfg.TRAIN.LORA.FREEZE_BACKBONE = True
+# ═══ DEPRECATED — kept only for YAML backward compat ═══
+# OPLoRA, NS-OPLoRA, and SGLoRA are superseded by UAV-WSP below.
+# These config stubs exist so old experiments/*.yaml files don't crash
+# config._update_config(). Do NOT use them for new experiments.
 cfg.TRAIN.OPLORA = edict()
 cfg.TRAIN.OPLORA.ENABLE = False
 cfg.TRAIN.OPLORA.RANK = 8
 cfg.TRAIN.OPLORA.TOP_K = 16
 cfg.TRAIN.OPLORA.ALPHA = 8.0
 cfg.TRAIN.OPLORA.TARGETS = ["qkv", "proj", "fc1", "fc2"]
-# NS-OPLoRA (Neuron-Selective OPLoRA + layer-wise differentiation for anti-UAV)
 cfg.TRAIN.NEURO_OPLORA = edict()
 cfg.TRAIN.NEURO_OPLORA.ENABLE = False
-cfg.TRAIN.NEURO_OPLORA.LAYER_CONFIGS = None  # None = use ANTI_UAV_DEFAULT_LAYER_CONFIG
-# SGLoRA (Spectral-Gated LoRA): deeply fused PEFT with learnable spectral gates
+cfg.TRAIN.NEURO_OPLORA.LAYER_CONFIGS = None
 cfg.TRAIN.SGLORA = edict()
 cfg.TRAIN.SGLORA.ENABLE = False
-cfg.TRAIN.SGLORA.LAYER_CONFIGS = None  # None = use SGLORA_DEFAULT_LAYER_CONFIG
+cfg.TRAIN.SGLORA.LAYER_CONFIGS = None
 cfg.TRAIN.SGLORA.ENTROPY_LAM_MAX = 1e-4
 cfg.TRAIN.SGLORA.WARMUP_RATIO = 0.33
 cfg.TRAIN.SGLORA.ANNEAL_RATIO = 0.33
 cfg.TRAIN.SGLORA.GROUP_LASSO_LAM_MAX = 1e-5
+# ═══════════════════════════════════════════════════════
+# UAV-WSP (Weighted Spectral Projection): anti-UAV small-target adapter
+cfg.TRAIN.UAV_WSP = edict()
+cfg.TRAIN.UAV_WSP.ENABLE = False
+cfg.TRAIN.UAV_WSP.LAYER_CONFIGS = None  # None = use WSP_DEFAULT_PRIOR_CONFIG
+cfg.TRAIN.UAV_WSP.ENTROPY_LAM_MAX = 1e-4
+cfg.TRAIN.UAV_WSP.WARMUP_RATIO = 0.33
+cfg.TRAIN.UAV_WSP.ANNEAL_RATIO = 0.33
+cfg.TRAIN.UAV_WSP.GROUP_LASSO_LAM_MAX = 1e-5
+cfg.TRAIN.UAV_WSP.FOCUS_LAM_MAX = 1e-5
+cfg.TRAIN.UAV_WSP.SPECTRAL_BETA = 1.0
+cfg.TRAIN.SAVE_BEST = True               # save best model based on validation metric
+cfg.TRAIN.SAVE_BEST_METRIC = "Loss/total"  # metric key to track (lower is better)
 cfg.TRAIN.PRINT_INTERVAL = 50
 cfg.TRAIN.VAL_EPOCH_INTERVAL = 20
 cfg.TRAIN.GRAD_CLIP_NORM = 0.1
 cfg.TRAIN.SAVE_EPOCHS = []  # extra epochs to save checkpoints (e.g. [20])
 cfg.TRAIN.AMP = False
+# Temporal Smoothness: anti-UAV motion continuity prior
+cfg.TRAIN.TEMPORAL_SMOOTHNESS = edict()
+cfg.TRAIN.TEMPORAL_SMOOTHNESS.ENABLE = False
+cfg.TRAIN.TEMPORAL_SMOOTHNESS.LOSS_WEIGHT = 0.05
 
 cfg.TRAIN.CE_START_EPOCH = 20  # candidate elimination start epoch
 cfg.TRAIN.CE_WARM_EPOCH = 80  # candidate elimination warm up epoch
@@ -124,6 +151,7 @@ cfg.TEST.TEMPLATE_SIZE = 128
 cfg.TEST.SEARCH_FACTOR = 5.0
 cfg.TEST.SEARCH_SIZE = 320
 cfg.TEST.EPOCH = 500
+cfg.TEST.CHECKPOINT = None
 
 # TEST.KALMAN_FILTER — adaptive Kalman + adaptive search factor (inference only)
 cfg.TEST.KALMAN_FILTER = edict()

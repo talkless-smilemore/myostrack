@@ -23,6 +23,14 @@ def run_tracker(tracker_name, tracker_param, run_id=None, dataset_name='otb', se
         debug: Debug level.
         threads: Number of threads.
     """
+    # ── 与训练一致的 CUDA 配置：TF32 Tensor Core 加速 matmul ─────────
+    import torch
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    if hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision("high")
+    # ────────────────────────────────────────────────────────────────────
 
     dataset_names = [x.strip() for x in dataset_name.split(',') if x.strip()]
     dataset = get_dataset(*dataset_names)

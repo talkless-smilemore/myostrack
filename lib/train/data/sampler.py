@@ -22,7 +22,7 @@ class TrackingSampler(torch.utils.data.Dataset):
 
     def __init__(self, datasets, p_datasets, samples_per_epoch, max_gap,
                  num_search_frames, num_template_frames=1, processing=no_processing, frame_sample_mode='causal',
-                 train_cls=False, pos_prob=0.5):
+                 train_cls=False, pos_prob=0.5, enable_temporal_smoothness=False):
         """
         args:
             datasets - List of datasets to be used for training
@@ -34,6 +34,7 @@ class TrackingSampler(torch.utils.data.Dataset):
             processing - An instance of Processing class which performs the necessary processing of the data.
             frame_sample_mode - Either 'causal' or 'interval'. If 'causal', then the test frames are sampled in a causally,
                                 otherwise randomly within the interval.
+            enable_temporal_smoothness - If True, also sample frame t+1 after the search frame for temporal consistency loss.
         """
         self.datasets = datasets
         self.train_cls = train_cls  # whether we are training classification
@@ -53,6 +54,7 @@ class TrackingSampler(torch.utils.data.Dataset):
         self.num_template_frames = num_template_frames
         self.processing = processing
         self.frame_sample_mode = frame_sample_mode
+        self.enable_temporal_smoothness = enable_temporal_smoothness
 
     def __len__(self):
         return self.samples_per_epoch
@@ -148,6 +150,20 @@ class TrackingSampler(torch.utils.data.Dataset):
             try:
                 template_frames, template_anno, meta_obj_train = dataset.get_frames(seq_id, template_frame_ids, seq_info_dict)
                 search_frames, search_anno, meta_obj_test = dataset.get_frames(seq_id, search_frame_ids, seq_info_dict)
+
+                # ── 🥈 temporal smoothness: also sample frame t+1 ──────────
+                if self.enable_temporal_smoothness and is_video_dataset:
+                    next_fid = min(search_frame_ids[0] + 1, len(visible) - 1)
+                    if next_fid != search_frame_ids[0]:
+                        try:
+                            sf_next, sa_next, _ = dataset.get_frames(
+                                seq_id, [next_fid], seq_info_dict)
+                            if sf_next is not None and len(sf_next) > 0:
+                                data['search_next_images'] = sf_next
+                                data['search_next_anno'] = sa_next['bbox']
+                        except Exception:
+                            pass  # silently skip
+                # ───────────────────────────────────────────────────────────
 
                 H, W, _ = template_frames[0].shape
                 template_masks = template_anno['mask'] if 'mask' in template_anno else [torch.zeros((H, W))] * self.num_template_frames

@@ -132,6 +132,10 @@ class LTRTrainer(BaseTrainer):
                     loader.sampler.set_epoch(self.epoch)
                 self.cycle_dataset(loader)
 
+        # ── YOLO-style: check for best model BEFORE stats reset ──────
+        self._try_save_best()
+        # ───────────────────────────────────────────────────────────────
+
         self._stats_new_epoch()
         if self.settings.local_rank in [-1, 0]:
             self._write_tensorboard()
