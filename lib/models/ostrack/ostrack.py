@@ -11,6 +11,7 @@ from torch.nn.modules.transformer import _get_clones
 
 from lib.models.layers.head import build_box_head
 from lib.models.layers.lora import inject_lora_into_backbone
+from lib.models.layers.lora_null import inject_lora_null_into_backbone
 from lib.models.layers.uav_wsp import inject_wsp_into_backbone, WSP_DEFAULT_PRIOR_CONFIG
 from lib.models.ostrack.vit import vit_base_patch16_224
 from lib.models.ostrack.vit_ce import vit_large_patch16_224_ce, vit_base_patch16_224_ce
@@ -154,8 +155,21 @@ def build_ostrack(cfg, training=True):
         missing_keys, unexpected_keys = model.load_state_dict(ckpt_state, strict=False)
         print('Load pretrained model from: ' + cfg.MODEL.PRETRAIN_FILE)
 
-    # Vanilla LoRA baseline: freeze original backbone weights and train only A/B adapters.
     lora_cfg = getattr(cfg.TRAIN, "LORA", None)
+    lora_null_cfg = getattr(cfg.TRAIN, "LORA_NULL", None)
+    wsp_cfg = getattr(cfg.TRAIN, "UAV_WSP", None)
+    active_adapters = [
+        name for name, enabled in (
+            ("LORA", lora_cfg is not None and getattr(lora_cfg, "ENABLE", False)),
+            ("LORA_NULL", lora_null_cfg is not None and getattr(lora_null_cfg, "ENABLE", False)),
+            ("UAV_WSP", wsp_cfg is not None and getattr(wsp_cfg, "ENABLE", False)),
+        )
+        if enabled
+    ]
+    if len(active_adapters) > 1:
+        raise ValueError(f"Enable only one adapter baseline at a time, got: {active_adapters}")
+
+    # Vanilla LoRA baseline: freeze original backbone weights and train only A/B adapters.
     if lora_cfg is not None and getattr(lora_cfg, "ENABLE", False):
         n_rep, n_lora_params = inject_lora_into_backbone(
             model.backbone,
@@ -167,10 +181,21 @@ def build_ostrack(cfg, training=True):
             freeze_backbone=bool(getattr(lora_cfg, "FREEZE_BACKBONE", True)),
         )
         print(f"Vanilla LoRA: replaced {n_rep} Linear layers, trainable LoRA params={n_lora_params}.")
+    # LoRA-Null baseline: SVD residual + trainable low-rank factors.
+    if lora_null_cfg is not None and getattr(lora_null_cfg, "ENABLE", False):
+        n_rep, n_lora_null_params = inject_lora_null_into_backbone(
+            model.backbone,
+            enable=True,
+            rank=int(getattr(lora_null_cfg, "RANK", 8)),
+            alpha=float(getattr(lora_null_cfg, "ALPHA", 1.0)),
+            target_linear_names=getattr(lora_null_cfg, "TARGETS", ["qkv", "proj", "fc1", "fc2"]),
+            freeze_backbone=bool(getattr(lora_null_cfg, "FREEZE_BACKBONE", True)),
+            use_last=bool(getattr(lora_null_cfg, "USE_LAST", True)),
+        )
+        print(f"LoRA-Null: replaced {n_rep} Linear layers, trainable params={n_lora_null_params}.")
     # WSP (Weighted Spectral Projection): anti-UAV small-target adapter
     # Unified PEFT with spectrally weighted orthogonal projection,
     # target-saliency gates, and focus regularisation.
-    wsp_cfg = getattr(cfg.TRAIN, "UAV_WSP", None)
     if wsp_cfg is not None and getattr(wsp_cfg, "ENABLE", False):
         layer_configs = getattr(wsp_cfg, "LAYER_CONFIGS", None) or None
         if layer_configs is None:

@@ -61,6 +61,16 @@ cfg.TRAIN.LORA.ALPHA = 8.0
 cfg.TRAIN.LORA.DROPOUT = 0.0
 cfg.TRAIN.LORA.TARGETS = ["qkv", "proj", "fc1", "fc2"]
 cfg.TRAIN.LORA.FREEZE_BACKBONE = True
+# LoRA-Null baseline. SVD-decompose pretrained Linear weights into a frozen
+# residual and trainable low-rank factors. USE_LAST=True uses the smallest
+# singular directions, matching the LoRA-Null setting.
+cfg.TRAIN.LORA_NULL = edict()
+cfg.TRAIN.LORA_NULL.ENABLE = False
+cfg.TRAIN.LORA_NULL.RANK = 8
+cfg.TRAIN.LORA_NULL.ALPHA = 1.0
+cfg.TRAIN.LORA_NULL.TARGETS = ["qkv", "proj", "fc1", "fc2"]
+cfg.TRAIN.LORA_NULL.FREEZE_BACKBONE = True
+cfg.TRAIN.LORA_NULL.USE_LAST = True
 # 鈺愨晲鈺?DEPRECATED 鈥?kept only for YAML backward compat 鈺愨晲鈺?
 # OPLoRA, NS-OPLoRA, and SGLoRA are superseded by UAV-WSP below.
 # These config stubs exist so old experiments/*.yaml files don't crash
