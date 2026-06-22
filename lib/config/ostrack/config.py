@@ -71,6 +71,14 @@ cfg.TRAIN.LORA_NULL.ALPHA = 1.0
 cfg.TRAIN.LORA_NULL.TARGETS = ["qkv", "proj", "fc1", "fc2"]
 cfg.TRAIN.LORA_NULL.FREEZE_BACKBONE = True
 cfg.TRAIN.LORA_NULL.USE_LAST = True
+# MiLoRA baseline. SVD-decompose pretrained Linear weights, freeze the
+# principal singular components, and train the minor singular components.
+cfg.TRAIN.MILORA = edict()
+cfg.TRAIN.MILORA.ENABLE = False
+cfg.TRAIN.MILORA.RANK = 8
+cfg.TRAIN.MILORA.ALPHA = 1.0
+cfg.TRAIN.MILORA.TARGETS = ["qkv", "proj", "fc1", "fc2"]
+cfg.TRAIN.MILORA.FREEZE_BACKBONE = True
 # 鈺愨晲鈺?DEPRECATED 鈥?kept only for YAML backward compat 鈺愨晲鈺?
 # OPLoRA, NS-OPLoRA, and SGLoRA are superseded by UAV-WSP below.
 # These config stubs exist so old experiments/*.yaml files don't crash

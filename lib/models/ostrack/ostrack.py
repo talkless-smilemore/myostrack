@@ -12,6 +12,7 @@ from torch.nn.modules.transformer import _get_clones
 from lib.models.layers.head import build_box_head
 from lib.models.layers.lora import inject_lora_into_backbone
 from lib.models.layers.lora_null import inject_lora_null_into_backbone
+from lib.models.layers.milora import inject_milora_into_backbone
 from lib.models.layers.uav_wsp import inject_wsp_into_backbone, WSP_DEFAULT_PRIOR_CONFIG
 from lib.models.ostrack.vit import vit_base_patch16_224
 from lib.models.ostrack.vit_ce import vit_large_patch16_224_ce, vit_base_patch16_224_ce
@@ -157,11 +158,13 @@ def build_ostrack(cfg, training=True):
 
     lora_cfg = getattr(cfg.TRAIN, "LORA", None)
     lora_null_cfg = getattr(cfg.TRAIN, "LORA_NULL", None)
+    milora_cfg = getattr(cfg.TRAIN, "MILORA", None)
     wsp_cfg = getattr(cfg.TRAIN, "UAV_WSP", None)
     active_adapters = [
         name for name, enabled in (
             ("LORA", lora_cfg is not None and getattr(lora_cfg, "ENABLE", False)),
             ("LORA_NULL", lora_null_cfg is not None and getattr(lora_null_cfg, "ENABLE", False)),
+            ("MILORA", milora_cfg is not None and getattr(milora_cfg, "ENABLE", False)),
             ("UAV_WSP", wsp_cfg is not None and getattr(wsp_cfg, "ENABLE", False)),
         )
         if enabled
@@ -193,6 +196,17 @@ def build_ostrack(cfg, training=True):
             use_last=bool(getattr(lora_null_cfg, "USE_LAST", True)),
         )
         print(f"LoRA-Null: replaced {n_rep} Linear layers, trainable params={n_lora_null_params}.")
+    # MiLoRA baseline: freeze principal singular components and train minor components.
+    if milora_cfg is not None and getattr(milora_cfg, "ENABLE", False):
+        n_rep, n_milora_params = inject_milora_into_backbone(
+            model.backbone,
+            enable=True,
+            rank=int(getattr(milora_cfg, "RANK", 8)),
+            alpha=float(getattr(milora_cfg, "ALPHA", 1.0)),
+            target_linear_names=getattr(milora_cfg, "TARGETS", ["qkv", "proj", "fc1", "fc2"]),
+            freeze_backbone=bool(getattr(milora_cfg, "FREEZE_BACKBONE", True)),
+        )
+        print(f"MiLoRA: replaced {n_rep} Linear layers, trainable params={n_milora_params}.")
     # WSP (Weighted Spectral Projection): anti-UAV small-target adapter
     # Unified PEFT with spectrally weighted orthogonal projection,
     # target-saliency gates, and focus regularisation.
