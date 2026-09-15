@@ -8,8 +8,8 @@ from lib.test.evaluation import get_dataset, trackerlist
 trackers = []
 # 与 test.py 的 --dataset_name 一致；评测结果目录在 output/test/tracking_results/ostrack/<parameter_name>/
 #dataset_name = 'anti_uav410'
-dataset_name = 'anti_uav_ir'
-#dataset_name = 'anti_uav300_ir'
+#dataset_name = 'anti_uav_ir'
+dataset_name = 'anti_uav300_ir'
 """stark"""
 # trackers.extend(trackerlist(name='stark_s', parameter_name='baseline', dataset_name=dataset_name,
 #                             run_ids=None, display_name='STARK-S50'))
@@ -34,10 +34,10 @@ dataset_name = 'anti_uav_ir'
 #                             run_ids=None, display_name='OSTrack-finetune'))
 trackers.extend(trackerlist(
     name='ostrack',
-    parameter_name='vitb_256_mae_ce_32x4_ep300_uav_wsp_best256',
+    parameter_name='asc_lora_ablation_F4_no_complement_constraint300',
     dataset_name=dataset_name,
     run_ids=None,
-    display_name='OSTrack-uav-wsp'
+    display_name='OSTrack-best',
 ))
 # trackers.extend(trackerlist(name='ostrack', parameter_name='vitb_256_mae_ce_32x4_ep300_sf36_tf25', dataset_name=dataset_name,
 #                             run_ids=None, display_name='OSTrack256'))

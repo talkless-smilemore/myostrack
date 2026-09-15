@@ -10,7 +10,11 @@ from torch import nn
 from torch.nn.modules.transformer import _get_clones
 
 from lib.models.layers.head import build_box_head
-from lib.models.layers.uav_wsp import inject_wsp_into_backbone, WSP_DEFAULT_PRIOR_CONFIG
+from lib.models.layers.asc_lora import inject_asc_lora_into_backbone, ASC_LORA_DEFAULT_PRIOR_CONFIG
+from lib.models.layers.lora import inject_lora_into_backbone
+from lib.models.layers.lora_null import inject_lora_null_into_backbone
+from lib.models.layers.milora import inject_milora_into_backbone
+from lib.models.layers.adalora import inject_adalora_into_backbone
 from lib.models.ostrack.vit import vit_base_patch16_224
 from lib.models.ostrack.vit_ce import vit_large_patch16_224_ce, vit_base_patch16_224_ce
 from lib.utils.box_ops import box_xyxy_to_cxcywh
@@ -153,8 +157,25 @@ def build_ostrack(cfg, training=True):
         missing_keys, unexpected_keys = model.load_state_dict(ckpt_state, strict=False)
         print('Load pretrained model from: ' + cfg.MODEL.PRETRAIN_FILE)
 
- # Vanilla LoRA baseline: freeze original backbone weights and train only A/B adapters.
     lora_cfg = getattr(cfg.TRAIN, "LORA", None)
+    lora_null_cfg = getattr(cfg.TRAIN, "LORA_NULL", None)
+    milora_cfg = getattr(cfg.TRAIN, "MILORA", None)
+    adalora_cfg = getattr(cfg.TRAIN, "ADALORA", None)
+    asc_lora_cfg = getattr(cfg.TRAIN, "ASC_LORA", None)
+    active_adapters = [
+        name for name, enabled in (
+            ("LORA", lora_cfg is not None and getattr(lora_cfg, "ENABLE", False)),
+            ("LORA_NULL", lora_null_cfg is not None and getattr(lora_null_cfg, "ENABLE", False)),
+            ("MILORA", milora_cfg is not None and getattr(milora_cfg, "ENABLE", False)),
+            ("ADALORA", adalora_cfg is not None and getattr(adalora_cfg, "ENABLE", False)),
+            ("ASC_LORA", asc_lora_cfg is not None and getattr(asc_lora_cfg, "ENABLE", False)),
+        )
+        if enabled
+    ]
+    if len(active_adapters) > 1:
+        raise ValueError(f"Enable only one adapter baseline at a time, got: {active_adapters}")
+    
+    # Vanilla LoRA baseline: freeze original backbone weights and train only A/B adapters.
     if lora_cfg is not None and getattr(lora_cfg, "ENABLE", False):
         n_rep, n_lora_params = inject_lora_into_backbone(
             model.backbone,
@@ -166,29 +187,89 @@ def build_ostrack(cfg, training=True):
             freeze_backbone=bool(getattr(lora_cfg, "FREEZE_BACKBONE", True)),
         )
         print(f"Vanilla LoRA: replaced {n_rep} Linear layers, trainable LoRA params={n_lora_params}.")
-        
-    # WSP (Weighted Spectral Projection): anti-UAV small-target adapter
+
+    # LoRA-Null baseline: SVD residual + trainable low-rank factors.
+    if lora_null_cfg is not None and getattr(lora_null_cfg, "ENABLE", False):
+        n_rep, n_lora_null_params = inject_lora_null_into_backbone(
+            model.backbone,
+            enable=True,
+            rank=int(getattr(lora_null_cfg, "RANK", 8)),
+            alpha=float(getattr(lora_null_cfg, "ALPHA", 1.0)),
+            target_linear_names=getattr(lora_null_cfg, "TARGETS", ["qkv", "proj", "fc1", "fc2"]),
+            freeze_backbone=bool(getattr(lora_null_cfg, "FREEZE_BACKBONE", True)),
+            use_last=bool(getattr(lora_null_cfg, "USE_LAST", True)),
+        )
+        print(f"LoRA-Null: replaced {n_rep} Linear layers, trainable params={n_lora_null_params}.")
+
+# MiLoRA baseline: freeze principal singular components and train minor components.
+    if milora_cfg is not None and getattr(milora_cfg, "ENABLE", False):
+        n_rep, n_milora_params = inject_milora_into_backbone(
+            model.backbone,
+            enable=True,
+            rank=int(getattr(milora_cfg, "RANK", 8)),
+            alpha=float(getattr(milora_cfg, "ALPHA", 1.0)),
+            target_linear_names=getattr(milora_cfg, "TARGETS", ["qkv", "proj", "fc1", "fc2"]),
+            freeze_backbone=bool(getattr(milora_cfg, "FREEZE_BACKBONE", True)),
+        )
+        print(f"MiLoRA: replaced {n_rep} Linear layers, trainable params={n_milora_params}.")
+    # AdaLoRA baseline: SVD-style LoRA with adaptive rank allocation during training.
+    if adalora_cfg is not None and getattr(adalora_cfg, "ENABLE", False):
+        n_rep, n_adalora_params = inject_adalora_into_backbone(
+            model.backbone,
+            enable=True,
+            rank=int(getattr(adalora_cfg, "INIT_RANK", 12)),
+            alpha=float(getattr(adalora_cfg, "ALPHA", 8.0)),
+            dropout=float(getattr(adalora_cfg, "DROPOUT", 0.0)),
+            target_linear_names=getattr(adalora_cfg, "TARGETS", ["qkv", "proj", "fc1", "fc2"]),
+            freeze_backbone=bool(getattr(adalora_cfg, "FREEZE_BACKBONE", True)),
+        )
+        print(f"AdaLoRA: replaced {n_rep} Linear layers, trainable params={n_adalora_params}.")
+    # ASC-LoRA: anti-UAV small-target adapter
     # Unified PEFT with spectrally weighted orthogonal projection,
     # target-saliency gates, and focus regularisation.
-    wsp_cfg = getattr(cfg.TRAIN, "UAV_WSP", None)
-    if wsp_cfg is not None and getattr(wsp_cfg, "ENABLE", False):
-        layer_configs = getattr(wsp_cfg, "LAYER_CONFIGS", None) or None
+
+    if asc_lora_cfg is not None and getattr(asc_lora_cfg, "ENABLE", False):
+        # ASC-LoRA ablations freeze the original backbone and train only the
+        # injected adapter parameters plus the tracking head. ASCLoRA's
+        # lora_A/lora_B/gate parameters are created trainable, while its
+        # copied base weight/bias stay frozen.
+        for parameter in model.backbone.parameters():
+            parameter.requires_grad = False
+
+        layer_configs = getattr(asc_lora_cfg, "LAYER_CONFIGS", None) or None
         if layer_configs is None:
-            layer_configs = WSP_DEFAULT_PRIOR_CONFIG
-        n_rep, n_frozen = inject_wsp_into_backbone(
+            layer_configs = ASC_LORA_DEFAULT_PRIOR_CONFIG
+        rank_override = getattr(asc_lora_cfg, "RANK", None)
+        if rank_override is not None:
+            rank_override = int(rank_override)
+            # Keep the current best SACT layer selection and all per-group
+            # settings fixed; only replace the rank for this experiment.
+            layer_configs = [dict(group_cfg, rank=rank_override)
+                             for group_cfg in layer_configs]
+        n_rep, n_unadapted = inject_asc_lora_into_backbone(
             model.backbone,
             enable=True,
             layer_configs=layer_configs,
-            entropy_lam_max=float(getattr(wsp_cfg, "ENTROPY_LAM_MAX", 1e-4)),
-            warmup_ratio=float(getattr(wsp_cfg, "WARMUP_RATIO", 0.33)),
-            anneal_ratio=float(getattr(wsp_cfg, "ANNEAL_RATIO", 0.33)),
-            group_lasso_lam_max=float(getattr(wsp_cfg, "GROUP_LASSO_LAM_MAX", 1e-5)),
-            focus_lam_max=float(getattr(wsp_cfg, "FOCUS_LAM_MAX", 1e-5)),
+            entropy_lam_max=float(getattr(asc_lora_cfg, "ENTROPY_LAM_MAX", 1e-4)),
+            warmup_ratio=float(getattr(asc_lora_cfg, "WARMUP_RATIO", 0.33)),
+            anneal_ratio=float(getattr(asc_lora_cfg, "ANNEAL_RATIO", 0.33)),
+            group_lasso_lam_max=float(getattr(asc_lora_cfg, "GROUP_LASSO_LAM_MAX", 1e-5)),
+            focus_lam_max=float(getattr(asc_lora_cfg, "FOCUS_LAM_MAX", 1e-5)),
+            channel_gate=bool(getattr(asc_lora_cfg, "CHANNEL_GATE", True)),
+            spectral_projection=str(getattr(asc_lora_cfg, "SPECTRAL_PROJECTION", "weighted")),
+            dropout=float(getattr(asc_lora_cfg, "DROPOUT", 0.0)),
         )
-        beta_info = getattr(wsp_cfg, "SPECTRAL_BETA", "per-group")
-        print(f"UAV-WSP: replaced {n_rep} Linear layers, {n_frozen} blocks frozen "
-              f"(spectral_beta={beta_info}, "
-              f"entropy_lam_max={getattr(wsp_cfg, 'ENTROPY_LAM_MAX', 1e-4)}, "
-              f"focus_lam_max={getattr(wsp_cfg, 'FOCUS_LAM_MAX', 1e-5)}).")
+        beta_info = [g.get("spectral_beta", 1.0) for g in layer_configs]
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print("ASC-LoRA experiment: "
+              f"name={getattr(asc_lora_cfg, 'EXPERIMENT_NAME', 'ASC-LoRA')}; "
+              f"blocks={[g['blocks'] for g in layer_configs]}; "
+              f"ranks={[g['rank'] for g in layer_configs]}; "
+              f"channel_gate={getattr(asc_lora_cfg, 'CHANNEL_GATE', True)}; "
+              f"spectral_projection={getattr(asc_lora_cfg, 'SPECTRAL_PROJECTION', 'weighted')}; "
+              f"top_k={[g['top_k'] for g in layer_configs]}; beta={beta_info}; "
+              f"complement_loss_weight={getattr(asc_lora_cfg, 'COMPLEMENT_LOSS_WEIGHT', 1e-4)}; "
+              f"trainable_parameters={trainable}.")
+        print(f"ASC-LoRA: replaced {n_rep} Linear layers; {n_unadapted} blocks use standard fine-tuning.")
 
     return model

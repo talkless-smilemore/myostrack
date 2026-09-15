@@ -12,7 +12,7 @@ from lib.test.evaluation.tracker import Tracker
 
 
 def run_tracker(tracker_name, tracker_param, run_id=None, dataset_name='otb', sequence=None, debug=0, threads=0,
-                num_gpus=8):
+                num_gpus=8, save_dir=None):
     """Run tracker on sequence or dataset.
     args:
         tracker_name: Name of tracking method.
@@ -31,6 +31,12 @@ def run_tracker(tracker_name, tracker_param, run_id=None, dataset_name='otb', se
     if hasattr(torch, "set_float32_matmul_precision"):
         torch.set_float32_matmul_precision("high")
     # ────────────────────────────────────────────────────────────────────
+
+    if save_dir is not None:
+        # local_env_settings() is called again by Tracker/parameters, so use
+        # an environment override to keep the checkpoint and result roots
+        # consistent for this invocation.
+        os.environ['OSTRACK_TEST_SAVE_DIR'] = os.path.abspath(save_dir)
 
     dataset_names = [x.strip() for x in dataset_name.split(',') if x.strip()]
     dataset = get_dataset(*dataset_names)
@@ -53,6 +59,8 @@ def main():
     parser.add_argument('--debug', type=int, default=0, help='Debug level.')
     parser.add_argument('--threads', type=int, default=0, help='Number of threads.')
     parser.add_argument('--num_gpus', type=int, default=8)
+    parser.add_argument('--save_dir', type=str, default=None,
+                        help='Experiment output directory (checkpoints and evaluation results).')
 
     args = parser.parse_args()
 
@@ -62,7 +70,7 @@ def main():
         seq_name = args.sequence
 
     run_tracker(args.tracker_name, args.tracker_param, args.runid, args.dataset_name, seq_name, args.debug,
-                args.threads, num_gpus=args.num_gpus)
+                args.threads, num_gpus=args.num_gpus, save_dir=args.save_dir)
 
 
 if __name__ == '__main__':

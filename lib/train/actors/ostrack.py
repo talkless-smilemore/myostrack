@@ -5,9 +5,12 @@ import torch
 import torch.nn.functional as F
 from ...utils.heapmap_utils import generate_heatmap
 from ...utils.ce_utils import generate_mask_cond, adjust_keep_rate
-from lib.models.layers.uav_wsp import WeightedSpectralProjection, collect_wsp_regularisation
-
-
+from lib.models.layers.asc_lora import (
+    ASCLoRA, collect_asc_lora_regularisation, collect_asc_lora_complement_loss,
+)
+from lib.models.layers.adalora import compute_adalora_orth_regu
+ 
+ 
 class OSTrackActor(BaseActor):
     """ Actor for training OSTrack models """
 
@@ -65,10 +68,10 @@ class OSTrackActor(BaseActor):
         if len(template_list) == 1:
             template_list = template_list[0]
 
-        # WSP progress tracking for dynamic regularisation schedule
-        if self.cfg is not None and getattr(getattr(self.cfg.TRAIN, "UAV_WSP", None), "ENABLE", False):
+        # ASC-LoRA progress tracking for dynamic regularisation schedule
+        if self.cfg is not None and getattr(getattr(self.cfg.TRAIN, "ASC_LORA", None), "ENABLE", False):
             progress = float(data['epoch']) / max(float(self.cfg.TRAIN.EPOCH), 1)
-            WeightedSpectralProjection.set_progress(progress)
+            ASCLoRA.set_progress(progress)
 
         out_dict = self.net(template=template_list,
                             search=search_img,
@@ -130,9 +133,22 @@ class OSTrackActor(BaseActor):
                 loss = loss + temporal_weight * temporal_loss
         # ───────────────────────────────────────────────────────────────────
 
-        # WSP regularisation (entropy + group-lasso + focus regularisation)
-        reg_loss = collect_wsp_regularisation(self.net)
+        # ASC-LoRA regularisation (entropy + group-lasso + focus regularisation)
+        reg_loss = collect_asc_lora_regularisation(self.net)
         loss = loss + reg_loss
+        complement_raw_loss = collect_asc_lora_complement_loss(self.net)
+        asc_cfg = getattr(self.cfg.TRAIN, "ASC_LORA", None) if self.cfg is not None else None
+        complement_weight = float(getattr(asc_cfg, "COMPLEMENT_LOSS_WEIGHT", 0.0)) \
+            if asc_cfg is not None and getattr(asc_cfg, "ENABLE", False) else 0.0
+        complement_weighted_loss = complement_raw_loss * complement_weight
+        loss = loss + complement_weighted_loss
+        adalora_orth_loss = torch.tensor(0.0, device=loss.device)
+        adalora_cfg = getattr(self.cfg.TRAIN, "ADALORA", None) if self.cfg is not None else None
+        if adalora_cfg is not None and getattr(adalora_cfg, "ENABLE", False):
+            orth_weight = float(getattr(adalora_cfg, "ORTH_REG_WEIGHT", 0.1))
+            if orth_weight > 0:
+                adalora_orth_loss = compute_adalora_orth_regu(self.net) * orth_weight
+                loss = loss + adalora_orth_loss
         if return_status:
             # status for log
             mean_iou = iou.detach().mean()
@@ -140,7 +156,9 @@ class OSTrackActor(BaseActor):
                       "Loss/giou": giou_loss.item(),
                       "Loss/l1": l1_loss.item(),
                       "Loss/location": location_loss.item(),
-                      "Loss/wsp_reg": reg_loss.item(),
+                      "Loss/asc_lora_reg": reg_loss.item(),
+                      "Loss/complement_raw": complement_raw_loss.item(),
+                      "Loss/complement_weighted": complement_weighted_loss.item(),
                       "Loss/temporal": temporal_loss.item(),
                       "IoU": mean_iou.item()}
             return loss, status

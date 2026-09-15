@@ -1,0 +1,10 @@
+BASE_CONFIG: vitb_256_mae_ce_32x4_ep300_uav_asc_lora_best256.yaml
+TRAIN:
+  OUTPUT_DIR: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F0_full
+  ASC_LORA:
+    EXPERIMENT_NAME: F0 Full ASC-LoRA
+    CHANNEL_GATE: true
+    SPECTRAL_PROJECTION: weighted
+    COMPLEMENT_LOSS_WEIGHT: 1e-4
+TEST:
+  CHECKPOINT: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F0_full/checkpoints/train/ostrack/asc_lora_ablation_F0_full/OSTrack_best.pth.tar

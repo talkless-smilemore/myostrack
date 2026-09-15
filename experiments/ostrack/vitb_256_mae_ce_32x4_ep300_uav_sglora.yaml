@@ -1,4 +1,4 @@
-# UAV-WSP (Weighted Spectral Projection): anti-UAV small-target adapter
+# ASC-LoRA (Weighted Spectral Projection): anti-UAV small-target adapter
 # Core innovation: P = I - UDUᵀ replaces P = I - UUᵀ (hard cut → graduated protection)
 #   d_i = (σ_i / σ₁)^β  preserves a gradient of adaptation capacity across the spectrum
 # Anti-UAV advantages:
@@ -70,7 +70,7 @@ TRAIN:
   DROP_PATH_RATE: 0.1
   BATCH_SIZE: 16
 
-  # UAV-WSP (Weighted Spectral Projection): anti-UAV small-target adapter
+  # ASC-LoRA (Weighted Spectral Projection): anti-UAV small-target adapter
   # ── 核心创新 ──────────────────────────────────────────────────────────
   # 1. 加权投影 P = I - UDUᵀ, d_i = (σ_i/σ₁)^β
   #    硬切断 → 渐变保护，小目标细节从中等奇异值方向获取适应空间
@@ -79,7 +79,7 @@ TRAIN:
   # 3. 聚焦正则化 (Gini 系数最大化)
   #    推动门控集中在少数通道 → 模拟小目标的空间稀疏性
   # ──────────────────────────────────────────────────────────────────────
-  UAV_WSP:
+  ASC_LORA:
     ENABLE: true
     # ── 层选择（基于 OSTrack_Layer_Analysis.md 扰动实验）────────────────
     LAYER_CONFIGS:

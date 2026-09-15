@@ -1,6 +1,6 @@
-# Vanilla LoRA 256 baseline for UAV experiments.
-# Original LoRA only: frozen pretrained backbone weights + trainable low-rank A/B adapters.
-# No OPLoRA projection, no ASC-LoRA, no gates, no center prior, no temporal smoothness.
+# Best-candidate 256 ASC-LoRA config.
+# Rationale: keep the A4 middle-layer sweet spot (B4-B7), but use the
+# differentiated V2 ranks/targets from the layer analysis.
 
 DATA:
   MAX_SAMPLE_INTERVAL: 200
@@ -66,25 +66,47 @@ TRAIN:
   DROP_PATH_RATE: 0.1
   BATCH_SIZE: 64
 
-  LORA:
-    ENABLE: true
-    RANK: 8
-    ALPHA: 8.0
-    DROPOUT: 0.0
-    TARGETS: ["qkv", "proj", "fc1", "fc2"]
-    FREEZE_BACKBONE: true
-
-  OPLORA:
-    ENABLE: false
-  NEURO_OPLORA:
-    ENABLE: false
-  SGLORA:
-    ENABLE: false
   ASC_LORA:
-    ENABLE: false
+    ENABLE: true
+    LAYER_CONFIGS:
+      # B7: strongest fusion hub, needs full adapter capacity.
+      - blocks: [7]
+        rank: 12
+        top_k: 16
+        alpha: 8.0
+        spectral_beta: 0.5
+        targets: ["attn.qkv", "attn.proj", "mlp.fc1", "mlp.fc2"]
+      # B6: core CE decision layer, attention adaptation is the priority.
+      - blocks: [6]
+        rank: 12
+        top_k: 16
+        alpha: 8.0
+        spectral_beta: 0.5
+        targets: ["attn.qkv", "attn.proj"]
+      # B5: post-CE local relation reconstruction.
+      - blocks: [5]
+        rank: 8
+        top_k: 16
+        alpha: 8.0
+        spectral_beta: 0.5
+        targets: ["mlp.fc1", "mlp.fc2"]
+      # B4: light spatial refinement; low-rank thaw only.
+      - blocks: [4]
+        rank: 2
+        top_k: 16
+        alpha: 8.0
+        spectral_beta: 0.3
+        targets: ["attn.qkv", "mlp.fc1"]
+      # Frozen: B0-B3 and B8-B11.
+
+    ENTROPY_LAM_MAX: 1e-5
+    WARMUP_RATIO: 0.5
+    ANNEAL_RATIO: 0.25
+    GROUP_LASSO_LAM_MAX: 5e-6
+    FOCUS_LAM_MAX: 0.0
 
   TEMPORAL_SMOOTHNESS:
-    ENABLE: false
+    ENABLE: true
     LOSS_WEIGHT: 0.05
 
   EPOCH: 40
@@ -104,14 +126,14 @@ TRAIN:
     DECAY_RATE: 0.1
   VAL_EPOCH_INTERVAL: 10
   WEIGHT_DECAY: 0.0001
-  AMP: True
+  AMP: False
 
 TEST:
   EPOCH: 40
-  CHECKPOINT: "/home/chenxinyi/OSTrack-main/output/train/checkpoints/train/ostrack/vitb_256_mae_ce_32x4_ep300_uav_lora/OSTrack_best.pth.tar"
-  SEARCH_FACTOR: 4.5
+  CHECKPOINT: "/home/chenxinyi/OSTrack-main/output/train/checkpoints/train/ostrack/vitb_256_mae_ce_32x4_ep300_asc_lora_best256/OSTrack_best.pth.tar"
+  SEARCH_FACTOR: 3.6
   SEARCH_SIZE: 256
-  TEMPLATE_FACTOR: 2.0
+  TEMPLATE_FACTOR: 2.2
   TEMPLATE_SIZE: 128
   KALMAN_FILTER:
     ENABLE: false

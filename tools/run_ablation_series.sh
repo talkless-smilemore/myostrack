@@ -13,7 +13,7 @@
 #   bash tools/run_ablation_series.sh A B D  # 跑 A 和 B 和 D 系列
 #
 # 也可以手动指定实验列表：
-#   bash tools/run_ablation_series.sh custom vitb_256_mae_ce_32x4_ep300_uav_wsp_A1.yaml vitb_256_mae_ce_32x4_ep300_uav_wsp_C1.yaml
+#   bash tools/run_ablation_series.sh custom vitb_256_mae_ce_32x4_ep300_asc_lora_A1.yaml vitb_256_mae_ce_32x4_ep300_asc_lora_C1.yaml
 #
 # 输出说明：
 #   - 每个实验的日志保存在 logs/<实验名>.log
@@ -47,30 +47,30 @@ CUDA_VISIBLE=""
 # ─── 系列 → 实验配置映射 ────────────────────────────────────────────────────
 declare -A SERIES_MAP
 SERIES_MAP[A]="
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_A1
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_A2
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_A3
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_A4
+  vitb_256_mae_ce_32x4_ep300_asc_lora_A1
+  vitb_256_mae_ce_32x4_ep300_asc_lora_A2
+  vitb_256_mae_ce_32x4_ep300_asc_lora_A3
+  vitb_256_mae_ce_32x4_ep300_asc_lora_A4
 "
 SERIES_MAP[B]="
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_B1
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_B2
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_B4
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_B5
+  vitb_256_mae_ce_32x4_ep300_asc_lora_B1
+  vitb_256_mae_ce_32x4_ep300_asc_lora_B2
+  vitb_256_mae_ce_32x4_ep300_asc_lora_B4
+  vitb_256_mae_ce_32x4_ep300_asc_lora_B5
 "
 SERIES_MAP[C]="
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_C1
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_C2
+  vitb_256_mae_ce_32x4_ep300_asc_lora_C1
+  vitb_256_mae_ce_32x4_ep300_asc_lora_C2
 "
 SERIES_MAP[D]="
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_D1
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_D2
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_D3
+  vitb_256_mae_ce_32x4_ep300_asc_lora_D1
+  vitb_256_mae_ce_32x4_ep300_asc_lora_D2
+  vitb_256_mae_ce_32x4_ep300_asc_lora_D3
 "
 SERIES_MAP[E]="
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_E1
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_E2
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_E3
+  vitb_256_mae_ce_32x4_ep300_asc_lora_E1
+  vitb_256_mae_ce_32x4_ep300_asc_lora_E2
+  vitb_256_mae_ce_32x4_ep300_asc_lora_E3
 "
 
 # =============================================================================

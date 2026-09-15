@@ -16,30 +16,30 @@ MODALITY="both"
 
 declare -A SERIES_MAP
 SERIES_MAP[A]="
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_A1
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_A2
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_A3
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_A4
+  vitb_256_mae_ce_32x4_ep300_asc_lora_A1
+  vitb_256_mae_ce_32x4_ep300_asc_lora_A2
+  vitb_256_mae_ce_32x4_ep300_asc_lora_A3
+  vitb_256_mae_ce_32x4_ep300_asc_lora_A4
 "
 SERIES_MAP[B]="
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_B1
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_B2
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_B4
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_B5
+  vitb_256_mae_ce_32x4_ep300_asc_lora_B1
+  vitb_256_mae_ce_32x4_ep300_asc_lora_B2
+  vitb_256_mae_ce_32x4_ep300_asc_lora_B4
+  vitb_256_mae_ce_32x4_ep300_asc_lora_B5
 "
 SERIES_MAP[C]="
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_C1
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_C2
+  vitb_256_mae_ce_32x4_ep300_asc_lora_C1
+  vitb_256_mae_ce_32x4_ep300_asc_lora_C2
 "
 SERIES_MAP[D]="
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_D1
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_D2
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_D3
+  vitb_256_mae_ce_32x4_ep300_asc_lora_D1
+  vitb_256_mae_ce_32x4_ep300_asc_lora_D2
+  vitb_256_mae_ce_32x4_ep300_asc_lora_D3
 "
 SERIES_MAP[E]="
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_E1
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_E2
-  vitb_256_mae_ce_32x4_ep300_uav_wsp_E3
+  vitb_256_mae_ce_32x4_ep300_asc_lora_E1
+  vitb_256_mae_ce_32x4_ep300_asc_lora_E2
+  vitb_256_mae_ce_32x4_ep300_asc_lora_E3
 "
 
 usage() {
@@ -106,7 +106,7 @@ run_single_test() {
 }
 
 run_tests_for_exp() {
-    local exp_name="$1"  # 例如 vitb_256_mae_ce_32x4_ep300_uav_wsp_A1
+    local exp_name="$1"  # 例如 vitb_256_mae_ce_32x4_ep300_asc_lora_A1
     local dataset_tokens=("uav" "uav300" "uav410")
     declare -A map
     if [ "$MODALITY" = "ir" ]; then

@@ -1,0 +1,8 @@
+# SACT ASC-LoRA rank ablation: only TRAIN.ASC_LORA.RANK differs.
+BASE_CONFIG: vitb_256_mae_ce_32x4_ep300_uav_asc_lora_best256.yaml
+TRAIN:
+  ASC_LORA:
+    RANK: 16
+    EXPERIMENT_NAME: SACT_ASCLoRA_rank16
+TEST:
+  CHECKPOINT: best

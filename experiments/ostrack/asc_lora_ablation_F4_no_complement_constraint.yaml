@@ -1,0 +1,10 @@
+BASE_CONFIG: vitb_256_mae_ce_32x4_ep300_uav_asc_lora_best256.yaml
+TRAIN:
+  OUTPUT_DIR: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F4_no_complement_constraint
+  ASC_LORA:
+    EXPERIMENT_NAME: F4 w/o Complement Constraint
+    CHANNEL_GATE: true
+    SPECTRAL_PROJECTION: weighted
+    COMPLEMENT_LOSS_WEIGHT: 0.0
+TEST:
+  CHECKPOINT: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F4_no_complement_constraint/checkpoints/train/ostrack/asc_lora_ablation_F4_no_complement_constraint/OSTrack_best.pth.tar

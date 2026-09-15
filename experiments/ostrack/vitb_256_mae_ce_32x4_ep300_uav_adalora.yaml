@@ -1,6 +1,6 @@
-# Vanilla LoRA 256 baseline for UAV experiments.
-# Original LoRA only: frozen pretrained backbone weights + trainable low-rank A/B adapters.
-# No OPLoRA projection, no ASC-LoRA, no gates, no center prior, no temporal smoothness.
+# AdaLoRA 256 baseline for UAV experiments.
+# SVD-style LoRA with adaptive rank budget allocation during training.
+# Starts from INIT_RANK and gradually masks singular directions to TARGET_RANK.
 
 DATA:
   MAX_SAMPLE_INTERVAL: 200
@@ -67,13 +67,32 @@ TRAIN:
   BATCH_SIZE: 64
 
   LORA:
-    ENABLE: true
+    ENABLE: false
+
+  LORA_NULL:
+    ENABLE: false
+
+  MILORA:
+    ENABLE: false
     RANK: 8
+    ALPHA: 1.0
+    TARGETS: ["qkv", "proj", "fc1", "fc2"]
+    FREEZE_BACKBONE: true
+
+  ADALORA:
+    ENABLE: true
+    INIT_RANK: 12
+    TARGET_RANK: 8
     ALPHA: 8.0
     DROPOUT: 0.0
     TARGETS: ["qkv", "proj", "fc1", "fc2"]
     FREEZE_BACKBONE: true
-
+    INIT_WARMUP: 500
+    FINAL_WARMUP: 1000
+    MASK_INTERVAL: 100
+    BETA1: 0.85
+    BETA2: 0.85
+    ORTH_REG_WEIGHT: 0.1
   OPLORA:
     ENABLE: false
   NEURO_OPLORA:
@@ -108,10 +127,10 @@ TRAIN:
 
 TEST:
   EPOCH: 40
-  CHECKPOINT: "/home/chenxinyi/OSTrack-main/output/train/checkpoints/train/ostrack/vitb_256_mae_ce_32x4_ep300_uav_lora/OSTrack_best.pth.tar"
-  SEARCH_FACTOR: 4.5
+  CHECKPOINT: "/home/chenxinyi/OSTrack-main/output/train/checkpoints/train/ostrack/vitb_256_mae_ce_32x4_ep300_uav_adalora/OSTrack_best.pth.tar"
+  SEARCH_FACTOR: 3.6
   SEARCH_SIZE: 256
-  TEMPLATE_FACTOR: 2.0
+  TEMPLATE_FACTOR: 2.2
   TEMPLATE_SIZE: 128
   KALMAN_FILTER:
     ENABLE: false

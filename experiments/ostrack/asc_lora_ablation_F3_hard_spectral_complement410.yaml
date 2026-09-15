@@ -1,0 +1,10 @@
+BASE_CONFIG: vitb_256_mae_ce_32x4_ep300_uav_asc_lora_best256.yaml
+TRAIN:
+  OUTPUT_DIR: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F3_hard_spectral_complement
+  ASC_LORA:
+    EXPERIMENT_NAME: F3 Hard Spectral Complement
+    CHANNEL_GATE: true
+    SPECTRAL_PROJECTION: hard
+    COMPLEMENT_LOSS_WEIGHT: 1e-4
+TEST:
+  CHECKPOINT: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F3_hard_spectral_complement/checkpoints/train/ostrack/asc_lora_ablation_F3_hard_spectral_complement/OSTrack_best.pth.tar

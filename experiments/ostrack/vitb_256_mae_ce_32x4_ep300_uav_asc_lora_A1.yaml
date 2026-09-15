@@ -1,0 +1,171 @@
+# ASC-LoRA (Weighted Spectral Projection): anti-UAV small-target adapter
+#
+# Core innovation:
+#   P = I - UDUᵀ  replaces  P = I - UUᵀ
+#   d_i = (σ_i / σ₁)^β  — graduated protection, not hard cut
+#
+# Anti-UAV advantages:
+#   - Mid-ranked σ directions carry fine target details — no longer discarded
+#   - Gate initialisation biased by per-channel detail saliency
+#   - Focus regularisation (Gini↑) pushes sparse target-saliency concentration
+#
+# 🥈 Temporal Smoothness (new):
+#   - Samples frame t+1 alongside the search frame from the same video
+#   - Both share the SAME crop window (same jittered centre, same scale)
+#   - L_temp = ||pred_box_search - pred_box_next|| — motion continuity prior
+#   - Only valid for anti-UAV: targets have inertia, can't teleport
+#
+# 🥇 V2 parameter relaxation (vs. original SGLoRA/ASC-LoRA):
+#   - β lowered from 1.0 → 0.5 for most layers (more adaptation freedom)
+#   - Rank raised on critical CE layers (8 → 12)
+#   - B4 + B10 unfrozen with rank=2 light adapters
+#   - Entropy peak lowered: 5e-5 → 1e-5
+#   - Focus regularisation off: 1e-5 → 0
+#
+# Training schedule:
+#   Epoch  0~20:  λ=0          (free learning, no regularisation pressure)
+#   Epoch 20~30:  λ ramps      (gradual sparsification)
+#   Epoch 30~40:  λ=max         (hard binary gates, compression-ready)
+#   Checkpoint at epoch 20      (mid-training snapshot)
+
+DATA:
+  MAX_SAMPLE_INTERVAL: 200
+  MEAN:
+  - 0.485
+  - 0.456
+  - 0.406
+  SEARCH:
+    CENTER_JITTER: 3
+    FACTOR: 4.0
+    SCALE_JITTER: 0.25
+    SIZE: 256
+  STD:
+  - 0.229
+  - 0.224
+  - 0.225
+  TEMPLATE:
+    CENTER_JITTER: 0
+    FACTOR: 2.0
+    SCALE_JITTER: 0
+    SIZE: 128
+
+  TRAIN:
+    DATASETS_NAME:
+    - ANTI_UAV_TRAIN
+    - ANTI_UAV410_TRAIN
+    - ANTI_UAV600_TRAIN
+    DATASETS_RATIO:
+    - 1
+    - 1
+    - 1
+    SAMPLE_PER_EPOCH: 30000
+  VAL:
+    DATASETS_NAME:
+    - ANTI_UAV_VAL
+    - ANTI_UAV410_VAL
+    - ANTI_UAV600_VAL
+    DATASETS_RATIO:
+    - 1
+    - 1
+    - 1
+    SAMPLE_PER_EPOCH: 5000
+
+MODEL:
+  PRETRAIN_FILE: "/home/chenxinyi/OSTrack-main/weights/OSTrack_vitb256_ep300/OSTrack_ep0300.pth.tar"
+  EXTRA_MERGER: False
+  RETURN_INTER: False
+  BACKBONE:
+    TYPE: vit_base_patch16_224_ce
+    STRIDE: 16
+    CE_LOC: [3, 6, 9]
+    CE_KEEP_RATIO: [0.7, 0.7, 0.7]
+    CE_TEMPLATE_RANGE: 'CTR_POINT'
+  HEAD:
+    TYPE: CENTER
+    NUM_CHANNELS: 256
+  CENTER_PRIOR:
+    ENABLE: false
+    NUM_BINS: 16
+
+TRAIN:
+  BACKBONE_MULTIPLIER: 0.1
+  DROP_PATH_RATE: 0.1
+  BATCH_SIZE: 64
+
+  # ─── ASC-LoRA V2: relaxed params + temporal smoothness ─────────────────
+  ASC_LORA:
+    ENABLE: true
+    LAYER_CONFIGS:
+      # A1: B4-B7 中间层 — 全4target, rank=8, β=0.5
+      - blocks: [4, 5, 6, 7]
+        rank: 8
+        top_k: 16
+        alpha: 8.0
+        spectral_beta: 0.5
+        targets: ["attn.qkv", "attn.proj", "mlp.fc1", "mlp.fc2"]
+      # A1: B8-B11 深层 — attention only, rank=4, β=0.5
+      - blocks: [8, 9, 10, 11]
+        rank: 4
+        top_k: 16
+        alpha: 8.0
+        spectral_beta: 0.5
+        targets: ["attn.qkv", "attn.proj"]
+      # B0-B3 = 冻结（不出现任何配置组中即可）
+
+    # Relaxed regularisation (weaker constraints → more adaptation freedom)
+    ENTROPY_LAM_MAX: 1e-5       # ↓ from 5e-5  — gentler gate sparsification
+    WARMUP_RATIO: 0.5           # epoch  0~20:  λ=0
+    ANNEAL_RATIO: 0.25          # epoch 20~30:  λ: 0 → max
+    GROUP_LASSO_LAM_MAX: 5e-6   # ↓ from 1e-5  — less neuron-level sparsity push
+    FOCUS_LAM_MAX: 0.0          # ↓ from 1e-5  — disabled; focus reg too aggressive
+
+  # ─── 🥈 Temporal Smoothness (motion continuity prior) ──────────────────
+  # UAVs have inertia — consecutive frames can't teleport.
+  # L_temp = ||pred_box_search − pred_box_next||₁
+  # Weight multiplied by batch_size so effective contribution is ~batch × weight
+  TEMPORAL_SMOOTHNESS:
+    ENABLE: true
+    LOSS_WEIGHT: 0.05
+
+  EPOCH: 40
+  SAVE_EPOCHS: [20]             # epoch 20 checkpoint
+  SAVE_BEST: true               # YOLO-style best model
+  SAVE_BEST_METRIC: "Loss/total"
+  GIOU_WEIGHT: 2.0
+  L1_WEIGHT: 5.0
+  GRAD_CLIP_NORM: 0.1
+  LR: 0.0004
+  LR_DROP_EPOCH: 32
+  NUM_WORKER: 8
+  OPTIMIZER: ADAMW
+  PRINT_INTERVAL: 50
+  SCHEDULER:
+    TYPE: step
+    DECAY_RATE: 0.1
+  VAL_EPOCH_INTERVAL: 10
+  WEIGHT_DECAY: 0.0001
+  AMP: False
+
+TEST:
+  EPOCH: 40
+  CHECKPOINT: '/home/chenxinyi/OSTrack-main/output/train/checkpoints/train/ostrack/vitb_256_mae_ce_32x4_ep300_asc_lora_A1/OSTrack_best.pth.tar'
+  SEARCH_FACTOR: 3.6
+  SEARCH_SIZE: 256
+  TEMPLATE_FACTOR: 2.2
+  TEMPLATE_SIZE: 128
+  KALMAN_FILTER:
+    ENABLE: false
+    DT: 1.0
+    BASE_PROCESS_NOISE: 0.01
+    VELOCITY_NOISE_SCALE: 10.0
+    SIZE_NOISE_SCALE: 2.0
+    BASE_OBS_NOISE: 5.0
+    ADAPT_THRESHOLD: 5.0
+    ADAPT_GAIN: 2.0
+    DECAY_RATE: 0.95
+    MAX_Q_SCALE: 10.0
+    CONF_THRESHOLD: 0.3
+    MIN_SEARCH_FACTOR: 2.5
+    MAX_SEARCH_FACTOR: 5.0
+    SAFETY_MARGIN: 1.5
+    MAX_LOW_CONF_FRAMES: 5

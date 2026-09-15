@@ -1,0 +1,10 @@
+BASE_CONFIG: vitb_256_mae_ce_32x4_ep300_uav_asc_lora_best256.yaml
+TRAIN:
+  OUTPUT_DIR: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F1_no_channel_gate
+  ASC_LORA:
+    EXPERIMENT_NAME: F1 w/o Channel Gate
+    CHANNEL_GATE: false
+    SPECTRAL_PROJECTION: weighted
+    COMPLEMENT_LOSS_WEIGHT: 1e-4
+TEST:
+  CHECKPOINT: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F1_no_channel_gate/checkpoints/train/ostrack/asc_lora_ablation_F1_no_channel_gate/OSTrack_best.pth.tar

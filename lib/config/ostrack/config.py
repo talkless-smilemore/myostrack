@@ -1,5 +1,6 @@
 from easydict import EasyDict as edict
 import yaml
+import os
 
 """
 Add default config for OSTrack.
@@ -53,7 +54,7 @@ cfg.TRAIN.GIOU_WEIGHT = 2.0
 cfg.TRAIN.L1_WEIGHT = 5.0
 cfg.TRAIN.FREEZE_LAYERS = [0, ]
 # Vanilla LoRA baseline. This is the original low-rank adapter without
-# orthogonal projection, gates, neuron selection, WSP, or extra regularisers.
+# orthogonal projection, gates, neuron selection, ASC-LoRA, or extra regularisers.
 cfg.TRAIN.LORA = edict()
 cfg.TRAIN.LORA.ENABLE = False
 cfg.TRAIN.LORA.RANK = 8
@@ -61,8 +62,41 @@ cfg.TRAIN.LORA.ALPHA = 8.0
 cfg.TRAIN.LORA.DROPOUT = 0.0
 cfg.TRAIN.LORA.TARGETS = ["qkv", "proj", "fc1", "fc2"]
 cfg.TRAIN.LORA.FREEZE_BACKBONE = True
+# LoRA-Null baseline. SVD-decompose pretrained Linear weights into a frozen
+# residual and trainable low-rank factors. USE_LAST=True uses the smallest
+# singular directions, matching the LoRA-Null setting.
+cfg.TRAIN.LORA_NULL = edict()
+cfg.TRAIN.LORA_NULL.ENABLE = False
+cfg.TRAIN.LORA_NULL.RANK = 8
+cfg.TRAIN.LORA_NULL.ALPHA = 1.0
+cfg.TRAIN.LORA_NULL.TARGETS = ["qkv", "proj", "fc1", "fc2"]
+cfg.TRAIN.LORA_NULL.FREEZE_BACKBONE = True
+cfg.TRAIN.LORA_NULL.USE_LAST = True
+# MiLoRA baseline. SVD-decompose pretrained Linear weights, freeze the
+# principal singular components, and train the minor singular components.
+cfg.TRAIN.MILORA = edict()
+cfg.TRAIN.MILORA.ENABLE = False
+cfg.TRAIN.MILORA.RANK = 8
+cfg.TRAIN.MILORA.ALPHA = 1.0
+cfg.TRAIN.MILORA.TARGETS = ["qkv", "proj", "fc1", "fc2"]
+cfg.TRAIN.MILORA.FREEZE_BACKBONE = True
+# AdaLoRA baseline. SVD-style LoRA with adaptive rank budget allocation.
+cfg.TRAIN.ADALORA = edict()
+cfg.TRAIN.ADALORA.ENABLE = False
+cfg.TRAIN.ADALORA.INIT_RANK = 12
+cfg.TRAIN.ADALORA.TARGET_RANK = 8
+cfg.TRAIN.ADALORA.ALPHA = 8.0
+cfg.TRAIN.ADALORA.DROPOUT = 0.0
+cfg.TRAIN.ADALORA.TARGETS = ["qkv", "proj", "fc1", "fc2"]
+cfg.TRAIN.ADALORA.FREEZE_BACKBONE = True
+cfg.TRAIN.ADALORA.INIT_WARMUP = 500
+cfg.TRAIN.ADALORA.FINAL_WARMUP = 1000
+cfg.TRAIN.ADALORA.MASK_INTERVAL = 100
+cfg.TRAIN.ADALORA.BETA1 = 0.85
+cfg.TRAIN.ADALORA.BETA2 = 0.85
+cfg.TRAIN.ADALORA.ORTH_REG_WEIGHT = 0.1
 # ═══ DEPRECATED — kept only for YAML backward compat ═══
-# OPLoRA, NS-OPLoRA, and SGLoRA are superseded by UAV-WSP below.
+# OPLoRA, NS-OPLoRA, and SGLoRA are superseded by ASC-LoRA below.
 # These config stubs exist so old experiments/*.yaml files don't crash
 # config._update_config(). Do NOT use them for new experiments.
 cfg.TRAIN.OPLORA = edict()
@@ -82,16 +116,26 @@ cfg.TRAIN.SGLORA.WARMUP_RATIO = 0.33
 cfg.TRAIN.SGLORA.ANNEAL_RATIO = 0.33
 cfg.TRAIN.SGLORA.GROUP_LASSO_LAM_MAX = 1e-5
 # ═══════════════════════════════════════════════════════
-# UAV-WSP (Weighted Spectral Projection): anti-UAV small-target adapter
-cfg.TRAIN.UAV_WSP = edict()
-cfg.TRAIN.UAV_WSP.ENABLE = False
-cfg.TRAIN.UAV_WSP.LAYER_CONFIGS = None  # None = use WSP_DEFAULT_PRIOR_CONFIG
-cfg.TRAIN.UAV_WSP.ENTROPY_LAM_MAX = 1e-4
-cfg.TRAIN.UAV_WSP.WARMUP_RATIO = 0.33
-cfg.TRAIN.UAV_WSP.ANNEAL_RATIO = 0.33
-cfg.TRAIN.UAV_WSP.GROUP_LASSO_LAM_MAX = 1e-5
-cfg.TRAIN.UAV_WSP.FOCUS_LAM_MAX = 1e-5
-cfg.TRAIN.UAV_WSP.SPECTRAL_BETA = 1.0
+# ASC-LoRA: anti-UAV small-target adapter
+cfg.TRAIN.ASC_LORA = edict()
+cfg.TRAIN.ASC_LORA.ENABLE = False
+cfg.TRAIN.ASC_LORA.LAYER_CONFIGS = None  # None = use ASC_LORA_DEFAULT_PRIOR_CONFIG
+# Optional experiment-level override. When set, it replaces the rank in
+# every configured ASC-LoRA layer group while leaving all other group fields
+# unchanged (useful for rank ablations).
+cfg.TRAIN.ASC_LORA.RANK = None
+cfg.TRAIN.ASC_LORA.ENTROPY_LAM_MAX = 1e-4
+cfg.TRAIN.ASC_LORA.WARMUP_RATIO = 0.33
+cfg.TRAIN.ASC_LORA.ANNEAL_RATIO = 0.33
+cfg.TRAIN.ASC_LORA.GROUP_LASSO_LAM_MAX = 1e-5
+cfg.TRAIN.ASC_LORA.FOCUS_LAM_MAX = 1e-5
+cfg.TRAIN.ASC_LORA.SPECTRAL_BETA = 1.0
+cfg.TRAIN.ASC_LORA.CHANNEL_GATE = True
+cfg.TRAIN.ASC_LORA.SPECTRAL_PROJECTION = "weighted"
+cfg.TRAIN.ASC_LORA.COMPLEMENT_LOSS_WEIGHT = 1e-4
+cfg.TRAIN.ASC_LORA.DROPOUT = 0.0
+cfg.TRAIN.ASC_LORA.EXPERIMENT_NAME = "ASC-LoRA"
+cfg.TRAIN.OUTPUT_DIR = None
 cfg.TRAIN.SAVE_BEST = True               # save best model based on validation metric
 cfg.TRAIN.SAVE_BEST_METRIC = "Loss/total"  # metric key to track (lower is better)
 cfg.TRAIN.PRINT_INTERVAL = 50
@@ -206,9 +250,15 @@ def _update_config(base_cfg, exp_cfg):
 
 
 def update_config_from_file(filename, base_cfg=None):
-    exp_config = None
     with open(filename, encoding='utf-8') as f:
-        exp_config = edict(yaml.safe_load(f))
+        exp_config = edict(yaml.safe_load(f) or {})
+    # Small ablation YAMLs inherit a fully specified common protocol.  This
+    # keeps F0--F5 independently selectable while preventing setting drift.
+    base_config = exp_config.pop("BASE_CONFIG", None)
+    if base_config is not None:
+        base_path = base_config if os.path.isabs(base_config) else os.path.join(os.path.dirname(filename), base_config)
+        update_config_from_file(base_path, base_cfg=base_cfg if base_cfg is not None else cfg)
+    if exp_config:
         if base_cfg is not None:
             _update_config(base_cfg, exp_config)
         else:

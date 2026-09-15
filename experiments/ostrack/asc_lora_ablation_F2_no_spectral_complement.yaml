@@ -1,0 +1,10 @@
+BASE_CONFIG: vitb_256_mae_ce_32x4_ep300_uav_asc_lora_best256.yaml
+TRAIN:
+  OUTPUT_DIR: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F2_no_spectral_complement
+  ASC_LORA:
+    EXPERIMENT_NAME: F2 w/o Spectral Complement Operator
+    CHANNEL_GATE: true
+    SPECTRAL_PROJECTION: none
+    COMPLEMENT_LOSS_WEIGHT: 1e-4
+TEST:
+  CHECKPOINT: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F2_no_spectral_complement/checkpoints/train/ostrack/asc_lora_ablation_F2_no_spectral_complement/OSTrack_best.pth.tar

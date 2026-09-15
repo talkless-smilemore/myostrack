@@ -1,0 +1,14 @@
+BASE_CONFIG: vitb_256_mae_ce_32x4_ep300_uav_asc_lora_best256.yaml
+TRAIN:
+  OUTPUT_DIR: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F5_standard_lora
+  ASC_LORA:
+    EXPERIMENT_NAME: F5 Standard LoRA
+    CHANNEL_GATE: false
+    SPECTRAL_PROJECTION: none
+    COMPLEMENT_LOSS_WEIGHT: 0.0
+    ENTROPY_LAM_MAX: 0.0
+    GROUP_LASSO_LAM_MAX: 0.0
+    FOCUS_LAM_MAX: 0.0
+    DROPOUT: 0.0
+TEST:
+  CHECKPOINT: /home/chenxinyi/OSTrack-main/output/asc_lora_ablations/F5_standard_lora/checkpoints/train/ostrack/asc_lora_ablation_F5_standard_lora/OSTrack_best.pth.tar

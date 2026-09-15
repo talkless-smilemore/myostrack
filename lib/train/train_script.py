@@ -11,6 +11,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from .base_functions import *
 # network related
 from lib.models.ostrack import build_ostrack
+from lib.models.layers.adalora import RankAllocator
 # forward propagation related
 from lib.train.actors import OSTrackActor
 # for import modules
@@ -82,7 +83,22 @@ def run(settings):
     # Optimizer, parameters, and learning rates
     optimizer, lr_scheduler = get_optimizer_scheduler(net, cfg)
     use_amp = getattr(cfg.TRAIN, "AMP", False)
-    trainer = LTRTrainer(actor, [loader_train, loader_val], optimizer, settings, lr_scheduler, use_amp=use_amp)
+    rank_allocator = None
+    adalora_cfg = getattr(cfg.TRAIN, "ADALORA", None)
+    if adalora_cfg is not None and getattr(adalora_cfg, "ENABLE", False):
+        total_step = int(cfg.TRAIN.EPOCH) * len(loader_train)
+        rank_allocator = RankAllocator(
+            net,
+            init_rank=int(getattr(adalora_cfg, "INIT_RANK", 12)),
+            target_rank=int(getattr(adalora_cfg, "TARGET_RANK", 8)),
+            init_warmup=int(getattr(adalora_cfg, "INIT_WARMUP", 500)),
+            final_warmup=int(getattr(adalora_cfg, "FINAL_WARMUP", 1000)),
+            mask_interval=int(getattr(adalora_cfg, "MASK_INTERVAL", 100)),
+            beta1=float(getattr(adalora_cfg, "BETA1", 0.85)),
+            beta2=float(getattr(adalora_cfg, "BETA2", 0.85)),
+            total_step=total_step,
+        )
+    trainer = LTRTrainer(actor, [loader_train, loader_val], optimizer, settings, lr_scheduler, use_amp=use_amp, rank_allocator=rank_allocator)
 
     # train process
     trainer.train(cfg.TRAIN.EPOCH, load_latest=True, fail_safe=True)

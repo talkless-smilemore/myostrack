@@ -120,7 +120,15 @@ def env_settings():
     env_module_name = 'lib.test.evaluation.local'
     try:
         env_module = importlib.import_module(env_module_name)
-        return env_module.local_env_settings()
+        settings = env_module.local_env_settings()
+        test_save_dir = os.environ.get('OSTRACK_TEST_SAVE_DIR')
+        if test_save_dir:
+            settings.save_dir = os.path.abspath(test_save_dir)
+            settings.results_path = os.path.join(settings.save_dir, 'test', 'tracking_results')
+            settings.segmentation_path = os.path.join(settings.save_dir, 'test', 'segmentation_results')
+            settings.network_path = os.path.join(settings.save_dir, 'test', 'networks')
+            settings.result_plot_path = os.path.join(settings.save_dir, 'test', 'result_plots')
+        return settings
     except:
         env_file = os.path.join(os.path.dirname(__file__), 'local.py')
 

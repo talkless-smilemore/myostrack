@@ -16,7 +16,7 @@ from lib.utils.misc import get_world_size
 
 
 class LTRTrainer(BaseTrainer):
-    def __init__(self, actor, loaders, optimizer, settings, lr_scheduler=None, use_amp=False):
+    def __init__(self, actor, loaders, optimizer, settings, lr_scheduler=None, use_amp=False,rank_allocator=None):
         """
         args:
             actor - The actor for training the network
@@ -50,6 +50,8 @@ class LTRTrainer(BaseTrainer):
         self.move_data_to_gpu = getattr(settings, 'move_data_to_gpu', True)
         self.settings = settings
         self.use_amp = use_amp
+        self.rank_allocator = rank_allocator
+        self.global_step = 0
         if use_amp:
             self.scaler = GradScaler()
 
@@ -96,6 +98,12 @@ class LTRTrainer(BaseTrainer):
                     if self.settings.grad_clip_norm > 0:
                         torch.nn.utils.clip_grad_norm_(self.actor.net.parameters(), self.settings.grad_clip_norm)
                     self.optimizer.step()
+                    self.global_step += 1
+                    if self.rank_allocator is not None:
+                        curr_rank, mask_threshold = self.rank_allocator.update_and_mask(self.actor.net, self.global_step)
+                        stats["AdaLoRA/curr_rank"] = curr_rank
+                        if mask_threshold is not None:
+                            stats["AdaLoRA/mask_threshold"] = mask_threshold
                 else:
                     self.scaler.scale(loss).backward()
                     if self.settings.grad_clip_norm > 0:
@@ -103,6 +111,12 @@ class LTRTrainer(BaseTrainer):
                         torch.nn.utils.clip_grad_norm_(self.actor.net.parameters(), self.settings.grad_clip_norm)
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
+                    self.global_step += 1
+                    if self.rank_allocator is not None:
+                        curr_rank, mask_threshold = self.rank_allocator.update_and_mask(self.actor.net, self.global_step)
+                        stats["AdaLoRA/curr_rank"] = curr_rank
+                        if mask_threshold is not None:
+                            stats["AdaLoRA/mask_threshold"] = mask_threshold
 
             # update statistics
             batch_size = data['template_images'].shape[loader.stack_dim]
